@@ -1,0 +1,32 @@
+{
+  "name": "lyra-mcp-server",
+  "version": "1.0.0",
+  "description": "Lyra MCP Server — AI companion access to Lyra profiles via Model Context Protocol",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "npx tsc",
+    "start": "node dist/index.js",
+    "dev": "npx tsc && node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "lyra",
+    "profiles",
+    "ai"
+  ],
+  "author": "Lyra",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@supabase/supabase-js": "^2.100.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.1.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.2",
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  }
+}
