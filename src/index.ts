@@ -380,6 +380,32 @@ if (TRANSPORT === 'stdio') {
     res.json({ status: 'ok', server: 'lyra-mcp-server', version: '1.0.0' });
   });
 
+  // MCP discovery and metadata endpoints
+  app.get('/robots.txt', (_req, res) => {
+    res.type('text/plain').send('User-agent: *\nAllow: /\nHost: https://mcp.checklyra.com\n');
+  });
+
+  app.get('/.well-known/mcp.json', (_req, res) => {
+    res.json({
+      name: 'Lyra MCP Server',
+      description: 'Read-only access to published Lyra profiles — preferences, gift ideas, boundaries, school affiliations.',
+      url: 'https://mcp.checklyra.com',
+      transport: 'streamable-http',
+      endpoint: 'https://mcp.checklyra.com/mcp',
+      authentication: 'none',
+      tools: [
+        'lyra_search_profiles',
+        'lyra_get_profile',
+        'lyra_get_section',
+        'lyra_recommend_gifts',
+        'lyra_get_insights',
+        'lyra_list_schools',
+      ],
+      repository: 'https://github.com/luisa-sys/lyra-mcp-server',
+      documentation: 'https://checklyra.com/llms.txt',
+    });
+  });
+
   app.post('/mcp', async (req, res) => {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
