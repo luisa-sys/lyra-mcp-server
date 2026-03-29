@@ -8,17 +8,17 @@ import { sanitiseText, sanitiseUrl } from './sanitise.js';
  * Helper: authenticate and get profile ID from API key.
  * Returns an error response if auth fails.
  */
-async function authAndProfile(apiKey?: string | undefined) {
+async function authAndProfile(apiKey: string | undefined) {
   if (!apiKey) {
-    return { error: 'API key required. Generate one at checklyra.com/dashboard/settings' };
+    throw new Error('API key required. Generate one at checklyra.com/dashboard/settings');
   }
   const auth = await authenticateApiKey(apiKey);
   if (!auth.authenticated || !auth.userId) {
-    return { error: auth.error || 'Authentication failed' };
+    throw new Error(auth.error || 'Authentication failed');
   }
   const profile = await getProfileForUser(auth.userId);
   if (!profile.profileId) {
-    return { error: profile.error || 'No profile found' };
+    throw new Error(profile.error || 'No profile found');
   }
   return { userId: auth.userId, profileId: profile.profileId, slug: profile.slug };
 }
@@ -50,8 +50,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, ...fields }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       // Sanitise text fields
       const updates: Record<string, string> = {};
@@ -87,8 +87,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, category, title, description }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const sb = getSupabase();
       const { data, error } = await sb.from('profile_items').insert({
@@ -115,8 +115,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, item_id }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const sb = getSupabase();
       const { error } = await sb.from('profile_items')
@@ -142,8 +142,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, school_name, school_location, relationship }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const sb = getSupabase();
       const { data, error } = await sb.from('school_affiliations').insert({
@@ -172,8 +172,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, title, url, link_type }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const cleanUrl = sanitiseUrl(url);
       if (!cleanUrl) return errorResponse('Invalid URL — must start with http:// or https://');
@@ -203,8 +203,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, published }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const sb = getSupabase();
       const { error } = await sb.from('profiles')
@@ -228,8 +228,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, school_id }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const sb = getSupabase();
       const { error } = await sb.from('school_affiliations')
@@ -251,8 +251,8 @@ export function registerWriteTools(server: McpServer) {
       },
     },
     async ({ api_key, link_id }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const sb = getSupabase();
       const { error } = await sb.from('external_links')
@@ -275,8 +275,8 @@ export function registerWriteTools(server: McpServer) {
       annotations: { readOnlyHint: true },
     },
     async ({ api_key }) => {
-      const auth = await authAndProfile(api_key as string);
-      if ('error' in auth) return errorResponse(auth.error);
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
       const coaching = {
         introduction: "Help the user build their Lyra profile through natural conversation. Ask about each section below, then use the write tools to save their answers.",

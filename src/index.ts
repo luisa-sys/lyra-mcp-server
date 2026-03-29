@@ -390,6 +390,15 @@ if (TRANSPORT === 'stdio') {
     res.type('text/plain').send('User-agent: *\nAllow: /\nHost: https://mcp.checklyra.com\n');
   });
 
+  app.get('/.well-known/glama.json', (_req, res) => {
+    res.json({
+      "$schema": "https://glama.ai/mcp/schemas/connector.json",
+      "maintainers": [
+        { "email": "luisa@santos-stephens.com" }
+      ]
+    });
+  });
+
   app.get('/.well-known/mcp.json', (_req, res) => {
     res.json({
       name: 'Lyra MCP Server',
