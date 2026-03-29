@@ -48,6 +48,7 @@ export function registerWriteTools(server: McpServer) {
         city: z.string().optional().describe('City'),
         country: z.string().optional().describe('Country code (e.g. GB, US)'),
       },
+      annotations: { destructiveHint: false, idempotentHint: true },
     },
     async ({ api_key, ...fields }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
@@ -85,6 +86,7 @@ export function registerWriteTools(server: McpServer) {
         title: z.string().describe('Item title (e.g. "Dark chocolate", "No surprise visits")'),
         description: z.string().optional().describe('Optional extra detail'),
       },
+      annotations: { destructiveHint: false },
     },
     async ({ api_key, category, title, description }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
@@ -113,6 +115,7 @@ export function registerWriteTools(server: McpServer) {
         api_key: z.string().describe('Lyra API key'),
         item_id: z.string().describe('Item UUID to remove'),
       },
+      annotations: { destructiveHint: true },
     },
     async ({ api_key, item_id }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
@@ -140,6 +143,7 @@ export function registerWriteTools(server: McpServer) {
         school_location: z.string().optional().describe('Location'),
         relationship: z.enum(['parent', 'student', 'alumni', 'staff', 'other']).optional().describe('Relationship to school'),
       },
+      annotations: { destructiveHint: false },
     },
     async ({ api_key, school_name, school_location, relationship }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
@@ -170,6 +174,7 @@ export function registerWriteTools(server: McpServer) {
         url: z.string().describe('URL (must start with http:// or https://)'),
         link_type: z.enum(['wishlist', 'retailer', 'article', 'general']).optional(),
       },
+      annotations: { destructiveHint: false },
     },
     async ({ api_key, title, url, link_type }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
@@ -201,6 +206,7 @@ export function registerWriteTools(server: McpServer) {
         api_key: z.string().describe('Lyra API key'),
         published: z.boolean().describe('true to publish, false to unpublish'),
       },
+      annotations: { destructiveHint: false, idempotentHint: true },
     },
     async ({ api_key, published }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
@@ -226,6 +232,7 @@ export function registerWriteTools(server: McpServer) {
         api_key: z.string().describe('Lyra API key'),
         school_id: z.string().describe('School affiliation UUID to remove'),
       },
+      annotations: { destructiveHint: true },
     },
     async ({ api_key, school_id }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
@@ -249,6 +256,7 @@ export function registerWriteTools(server: McpServer) {
         api_key: z.string().describe('Lyra API key'),
         link_id: z.string().describe('Link UUID to remove'),
       },
+      annotations: { destructiveHint: true },
     },
     async ({ api_key, link_id }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };

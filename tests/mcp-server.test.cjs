@@ -84,6 +84,32 @@ describe('MCP Server - Tool Registration', () => {
   });
 });
 
+describe('MCP Server - Write Tool Annotations', () => {
+  const writeSource = fs.readFileSync(path.join(root, 'src/write-tools.ts'), 'utf8');
+
+  test('all write tools have annotations', () => {
+    const annotations = (writeSource.match(/annotations:\s*\{/g) || []);
+    // 8 write tools + 1 coaching tool = 9 annotations
+    expect(annotations.length).toBeGreaterThanOrEqual(9);
+  });
+
+  test('remove tools have destructiveHint: true', () => {
+    const destructive = (writeSource.match(/destructiveHint:\s*true/g) || []);
+    // lyra_remove_item, lyra_remove_school, lyra_remove_link = 3
+    expect(destructive.length).toBe(3);
+  });
+
+  test('additive tools have destructiveHint: false', () => {
+    const nonDestructive = (writeSource.match(/destructiveHint:\s*false/g) || []);
+    // update_profile, add_item, add_school, add_link, publish_profile = 5
+    expect(nonDestructive.length).toBe(5);
+  });
+
+  test('coaching tool has readOnlyHint', () => {
+    expect(writeSource).toContain("annotations: { readOnlyHint: true }");
+  });
+});
+
 describe('MCP Server - Transport Setup', () => {
   const source = fs.readFileSync(path.join(root, 'src/index.ts'), 'utf8');
 
