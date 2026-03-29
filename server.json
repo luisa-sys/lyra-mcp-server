@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.luisa-sys/lyra-mcp-server",
-  "description": "Search and discover Lyra profiles.",
-  "version": "1.0.0",
+  "description": "Search, read, and manage Lyra profiles.",
+  "version": "2.0.0",
   "repository": {
     "url": "https://github.com/luisa-sys/lyra-mcp-server",
     "source": "github"
