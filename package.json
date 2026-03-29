@@ -28,7 +28,7 @@
   "devDependencies": {
     "@types/express": "^5.0.2",
     "@types/jest": "^30.0.0",
-    "@types/node": "^22.15.3",
+    "@types/node": "^22.19.15",
     "jest": "^30.3.0",
     "ts-jest": "^29.4.6",
     "typescript": "^5.8.3"

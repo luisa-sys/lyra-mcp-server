@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import express from 'express';
 import { z } from 'zod';
 import { getSupabase } from './supabase.js';
+import { registerWriteTools } from './write-tools.js';
 
 const server = new McpServer({
   name: 'lyra-mcp-server',
@@ -362,6 +363,10 @@ server.registerTool(
   }
 );
 
+// ── Register Write Tools (KAN-6 Phase 2) ───────────────────
+
+registerWriteTools(server);
+
 // ── Transport Setup ─────────────────────────────────────────────
 
 const TRANSPORT = process.env.MCP_TRANSPORT || 'http';
@@ -388,11 +393,11 @@ if (TRANSPORT === 'stdio') {
   app.get('/.well-known/mcp.json', (_req, res) => {
     res.json({
       name: 'Lyra MCP Server',
-      description: 'Read-only access to published Lyra profiles — preferences, gift ideas, boundaries, school affiliations.',
+      description: 'Lyra profile platform — read public profiles, manage your own profile via API key authentication.',
       url: 'https://mcp.checklyra.com',
       transport: 'streamable-http',
       endpoint: 'https://mcp.checklyra.com/mcp',
-      authentication: 'none',
+      authentication: 'api_key (for write tools)',
       tools: [
         'lyra_search_profiles',
         'lyra_get_profile',
@@ -400,6 +405,15 @@ if (TRANSPORT === 'stdio') {
         'lyra_recommend_gifts',
         'lyra_get_insights',
         'lyra_list_schools',
+        'lyra_update_profile',
+        'lyra_add_item',
+        'lyra_remove_item',
+        'lyra_add_school',
+        'lyra_remove_school',
+        'lyra_add_link',
+        'lyra_remove_link',
+        'lyra_publish_profile',
+        'lyra_get_onboarding_coaching',
       ],
       repository: 'https://github.com/luisa-sys/lyra-mcp-server',
       documentation: 'https://checklyra.com/llms.txt',
