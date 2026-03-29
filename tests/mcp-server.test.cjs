@@ -151,3 +151,31 @@ describe('MCP Server - Supabase Client', () => {
     expect(supabaseSource).toContain('if (!supabase)');
   });
 });
+
+describe('MCP Server - Security Middleware (KAN-118)', () => {
+  const source = fs.readFileSync(path.join(root, 'src/index.ts'), 'utf8');
+
+  test('imports cors middleware', () => {
+    expect(source).toContain("import cors from 'cors'");
+  });
+
+  test('imports express-rate-limit', () => {
+    expect(source).toContain("import rateLimit from 'express-rate-limit'");
+  });
+
+  test('applies CORS to /mcp endpoint permissively', () => {
+    expect(source).toContain("app.use('/mcp', cors())");
+  });
+
+  test('applies rate limiting globally (100/min)', () => {
+    expect(source).toMatch(/rateLimit\(\{[\s\S]*?max:\s*100/);
+  });
+
+  test('applies stricter rate limiting to /mcp (60/min)', () => {
+    expect(source).toMatch(/app\.use\('\/mcp',\s*rateLimit\(\{[\s\S]*?max:\s*60/);
+  });
+
+  test('has request logging middleware', () => {
+    expect(source).toContain('console.log(`[${timestamp}]');
+  });
+});

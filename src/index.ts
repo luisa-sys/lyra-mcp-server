@@ -3,6 +3,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import express from 'express';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { getSupabase } from './supabase.js';
 import { registerWriteTools } from './write-tools.js';
@@ -380,6 +382,55 @@ if (TRANSPORT === 'stdio') {
   // HTTP transport for remote access (Railway, etc.)
   const app = express();
   app.use(express.json());
+
+  // ── CORS ─────────────────────────────────────────────────────
+  // MCP endpoint must be permissive (AI clients come from arbitrary origins)
+  // Non-MCP endpoints are restricted to Lyra domains
+  app.use('/mcp', cors()); // Allow all origins for MCP (required for AI client access)
+  app.use(cors({
+    origin: [
+      'https://checklyra.com',
+      'https://dev.checklyra.com',
+      'https://stage.checklyra.com',
+    ],
+    methods: ['GET', 'POST'],
+  }));
+
+  // ── Rate Limiting (KAN-118) ──────────────────────────────────
+  // Global: 100 requests per minute per IP
+  app.use(rateLimit({
+    windowMs: 60_000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests. Please try again later.' },
+  }));
+
+  // MCP endpoint: stricter 60 requests per minute per IP
+  app.use('/mcp', rateLimit({
+    windowMs: 60_000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'MCP rate limit exceeded. Max 60 requests per minute.' },
+  }));
+
+  // ── Request Logging (KAN-118) ────────────────────────────────
+  app.use((req, _res, next) => {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    const method = req.method;
+    const path = req.path;
+    const timestamp = new Date().toISOString();
+    // Log MCP requests with more detail (tool calls)
+    if (path === '/mcp' && method === 'POST' && req.body?.params?.method) {
+      console.log(`[${timestamp}] ${method} ${path} tool=${req.body.params.method} ip=${ip}`);
+    } else if (path === '/mcp' && method === 'POST') {
+      console.log(`[${timestamp}] ${method} ${path} ip=${ip}`);
+    } else {
+      console.log(`[${timestamp}] ${method} ${path} ip=${ip}`);
+    }
+    next();
+  });
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', server: 'lyra-mcp-server', version: '1.0.0' });
