@@ -1,4 +1,4 @@
-# CLAUDE.md — Project Instructions for Claude
+# [CLAUDE.md](http://CLAUDE.md) — Project Instructions for Claude
 
 This file contains instructions and policies that Claude must follow when working on this repository.
 
@@ -16,6 +16,7 @@ Before starting any task, Claude must:
 All work must be tracked in Jira. KAN project for design/deployment, BUGS project for bug tracking.
 
 Every KAN Task/Story description MUST include all six sections:
+
 1. **What & Why**
 2. **Implementation steps**
 3. **Tests Required** — unit, functional, E2E: what to test, mocks, edge cases
@@ -25,7 +26,7 @@ Every KAN Task/Story description MUST include all six sections:
 
 ## Deployment
 
-- This repo deploys to Railway at mcp.checklyra.com
+- This repo deploys to Railway at [mcp.checklyra.com](http://mcp.checklyra.com)
 - Railway auto-deploys from `main` branch
 - Push to main only after tests pass
 - Production MCP server points to production Supabase
@@ -78,6 +79,39 @@ When Claude is deliberately changing tool responses, error messages, or API beha
 5. Only update the tests after receiving explicit approval
 
 This policy applies to all test types: unit (Jest/Vitest), integration, and any future test suites.
+
+## Workflow & Backup Integrity Policy
+
+**FALSE POSITIVES ARE WORSE THAN FAILURES.** This policy mirrors the lyra repo. Even though this repo has fewer workflows, the same rules apply.
+
+### Forbidden patterns
+
+Claude must NEVER introduce, and must actively REMOVE on sight:
+
+1. **Silent-skip on missing secrets** — `if: env.X != ''` patterns that skip a critical step without failing.
+2. **Error-swallowing fallbacks for critical data** — any pattern that overwrites a target file with a placeholder string when the real operation fails. Use `set -euo pipefail` and let the error propagate.
+3. **Lossy** `|| echo "?"` **fallbacks** that mask fetch failures as data placeholders. Distinguish "0" from "fetch failed".
+4. `continue-on-error: true` on critical steps. Acceptable only on advisory steps with a code comment explaining why.
+5. **Multi-line** `run:` **blocks without** `set -euo pipefail`.
+
+### Required patterns
+
+Every multi-line shell block must:
+
+1. Start with `set -euo pipefail`.
+2. Validate critical outputs before declaring success.
+3. Use GitHub `::error::` and `::warning::` annotations on failure.
+
+### Pre-merge grep checks
+
+```bash
+grep -rn -E "(test|it|describe)\.(skip|todo|only)" tests/ src/
+grep -rn -E "if:.*env\..*!=\s*''" .github/workflows/
+grep -rn -E '\|\|\s*echo\s*"' .github/workflows/
+grep -rn -E "continue-on-error:\s*true" .github/workflows/
+```
+
+If any match, justify in a code comment or remove. Tracked under KAN-167 in the lyra project.
 
 ## Known Technical Gotchas
 
