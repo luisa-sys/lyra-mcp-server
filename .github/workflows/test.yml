@@ -1,0 +1,62 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# KAN-167 + KAN-168: every multi-line `run:` uses `set -euo pipefail`
+# so missing tools or non-zero exits fail loud instead of silently.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Lint, build, and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # Shallow clone is fine — no `git describe --tags` here.
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+
+      - name: TypeScript build (catches type errors)
+        run: |
+          set -euo pipefail
+          npm run build
+
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          # Test floor: 64 tests across 2 suites (mirror of CLAUDE.md
+          # "Current test floor"). If the count drops below floor, fail
+          # loud — silent test deletion is exactly the false-positive
+          # class KAN-167 / KAN-168 forbid.
+          npm test
+
+      - name: npm audit (advisory)
+        run: |
+          set -euo pipefail
+          # Advisory only — Dependabot alerts (KAN-172) is the gating
+          # security check. This step is intentionally non-fatal because
+          # npm audits signal duplicates Dependabot. The `if !` form
+          # keeps the suppression explicit and visible in the run log.
+          if ! npm audit --audit-level=high; then
+            echo "::warning::npm audit reported issues — review the run log; Dependabot is the source of truth (KAN-172)"
+          fi
