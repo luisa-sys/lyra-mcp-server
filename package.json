@@ -34,6 +34,6 @@
     "@types/node": "^22.19.15",
     "jest": "^30.3.0",
     "ts-jest": "^29.4.6",
-    "typescript": "^5.8.3"
+    "typescript": "^6.0.3"
   }
 }
