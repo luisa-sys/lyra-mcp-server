@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # KAN-172: enable Dependabot version updates for lyra-mcp-server.
+  # Alerts (vulnerability detection) are enabled separately via repo settings.
+  # This config drives the version-update PRs that complement the alerts.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+
+  # github-actions ecosystem: kept even though no .github/workflows/ exist
+  # yet (cross-repo CI gap is tracked under KAN-168). When workflows are
+  # added later, Dependabot will start tracking action versions automatically.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "ci"
+    commit-message:
+      prefix: "ci"
