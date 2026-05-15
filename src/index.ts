@@ -9,6 +9,22 @@ import { z } from 'zod';
 import { getSupabase } from './supabase.js';
 import { registerWriteTools } from './write-tools.js';
 
+// ─────────────────────────────────────────────────────────────────────
+// KAN-143 — VISIBILITY FILTER IS LOAD-BEARING.
+// ─────────────────────────────────────────────────────────────────────
+// The MCP server connects with SUPABASE_SERVICE_ROLE_KEY (see CLAUDE.md
+// gotcha #1), which BYPASSES Row Level Security. The RLS policies on
+// `profile_items` therefore do NOT protect us — every read of
+// `profile_items` MUST chain `.eq('visibility', 'public')` to keep
+// draft, private, and members_only items out of MCP responses.
+//
+// `tests/mcp-visibility-guard.test.cjs` is a static-grep regression test
+// that fails CI if any `.from('profile_items')` read is missing the
+// public filter. If you intentionally need an unfiltered read, add a
+// `// visibility-ok: <reason + Jira key>` comment directly above the
+// `.from(...)` line — the test will then skip that occurrence.
+// ─────────────────────────────────────────────────────────────────────
+
 const server = new McpServer({
   name: 'lyra-mcp-server',
   version: '1.0.0',
