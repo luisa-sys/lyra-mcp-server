@@ -46,7 +46,7 @@ Every KAN Task/Story description MUST include all six sections:
 - Railway auto-deploys from `main` branch via the Railway GitHub App
 - Push to main only after tests pass
 - Production MCP server points to production Supabase; dev MCP server points to dev Supabase (see Gotcha #6)
-- Current test floor: **64 tests** (2 suites)
+- Current test floor: **114 tests** (6 suites). Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
 
 ### Railway settings — DO NOT CHANGE WITHOUT READING BUGS-18
 
