@@ -604,6 +604,14 @@ if (TRANSPORT === 'stdio') {
           url: 'https://mcp.checklyra.com/mcp',
         },
       ],
+      // BUGS-18 — deploy-freshness fingerprint. Railway injects
+      // RAILWAY_GIT_COMMIT_SHA on every deploy; the post-merge smoke
+      // workflow (.github/workflows/post-merge-deploy-smoke.yml) compares
+      // this against the head SHA of `main` after a merge and fails loud
+      // if Railway hasn't redeployed. Without this fingerprint, deploy
+      // staleness is silent — the live endpoint just keeps serving the
+      // last successful build. `(unknown)` is the local-dev/test default.
+      build_sha: process.env.RAILWAY_GIT_COMMIT_SHA || '(unknown)',
       // Lyra-specific supplementary fields — useful for human readers
       // and for directories that scan beyond the registry minimum.
       display_name: 'Lyra MCP Server',

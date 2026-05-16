@@ -1,0 +1,161 @@
+name: Post-merge deploy smoke
+
+# BUGS-18: catch silent Railway deploy failures.
+#
+# Background: lyra-mcp-server deploys to Railway from `main` via Railway's
+# GitHub integration. There is no GitHub-side check posted by Railway, so
+# when the integration silently breaks (GitHub App uninstalled, OAuth token
+# expired, watched-branch misconfig), merges to main keep landing green
+# while the live server at mcp.checklyra.com keeps serving the previous
+# build. We discovered this 2026-05-16 when PRs #23 and #24 had been on
+# main for 1.5h+ without reaching production.
+#
+# This workflow runs after every push to main, waits long enough for a
+# normal Railway deploy to complete (~3 min build + ~30s rollover), then
+# probes /.well-known/mcp.json for the `build_sha` field that the server
+# emits from RAILWAY_GIT_COMMIT_SHA. If the live SHA does not match the
+# expected head SHA after the timeout, the workflow fails with an
+# ::error:: annotation and the failure is visible on the run summary.
+#
+# Mirrors the "FALSE POSITIVES ARE WORSE THAN FAILURES" / Backup Integrity
+# doctrine in CLAUDE.md and KAN-167. Quiet success on a stale deploy is
+# the exact failure mode this prevents.
+
+on:
+  push:
+    branches:
+      - main
+  # Manual trigger so Luisa (or a follow-up agent) can re-run the probe
+  # after fixing the Railway integration without needing to push a commit.
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: 'Optional: SHA the live server should be serving (defaults to current main HEAD)'
+        required: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    name: Probe mcp.checklyra.com for fresh deploy
+    runs-on: ubuntu-latest
+    # Don't gate test.yml on this — it's a deploy probe, not a CI check.
+    # The two workflows run in parallel.
+    steps:
+      - name: Checkout (shallow)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Resolve expected SHA
+        id: expected
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.expected_sha || '' }}" ]; then
+            EXPECTED="${{ github.event.inputs.expected_sha }}"
+          else
+            EXPECTED="${GITHUB_SHA}"
+          fi
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+          echo "Expected live build_sha: $EXPECTED"
+
+      - name: Wait for Railway deploy window
+        run: |
+          set -euo pipefail
+          # Railway-side build is ~2 min for this project + ~30s rollover.
+          # Wait 3 min before the first probe, then poll for up to 7 more
+          # minutes (10-min total budget). If Railway is healthy this
+          # should hit on the first or second probe; if it is broken, the
+          # full budget elapses and we fail loud.
+          echo "::group::Initial wait (180s for Railway build window)"
+          sleep 180
+          echo "::endgroup::"
+
+      - name: Probe live build_sha
+        id: probe
+        env:
+          EXPECTED: ${{ steps.expected.outputs.expected }}
+        run: |
+          set -euo pipefail
+
+          # Probe writes one of three distinct outcomes to LIVE_SHA:
+          #   - a 40-char hex SHA (the happy path)
+          #   - "(missing)"      — endpoint reachable, build_sha field absent
+          #   - "(probe-failed)" — network/HTTP error, server unreachable
+          # We use an explicit if-block rather than the curl-pipe-fallback
+          # shorthand because CLAUDE.md's forbidden-patterns grep treats
+          # that shorthand as silent error-swallowing. Branching the two
+          # cases here keeps the failure paths separate and auditable.
+          probe() {
+            local body
+            if ! body="$(curl --fail --silent --show-error --max-time 10 https://mcp.checklyra.com/.well-known/mcp.json)"; then
+              printf '%s' "(probe-failed)"
+              return 0
+            fi
+            printf '%s' "$body" | python3 -c "import sys, json; print(json.loads(sys.stdin.read()).get('build_sha', '(missing)'))"
+          }
+
+          # Up to 7 more attempts at 60s intervals = ~7 min extra budget.
+          for attempt in 1 2 3 4 5 6 7; do
+            LIVE_SHA="$(probe)"
+            echo "Attempt $attempt: live build_sha=$LIVE_SHA expected=$EXPECTED"
+
+            if [ "$LIVE_SHA" = "$EXPECTED" ]; then
+              echo "::notice::Railway redeployed cleanly — live build_sha matches main HEAD ($EXPECTED)"
+              echo "matched=true" >> "$GITHUB_OUTPUT"
+              echo "live_sha=$LIVE_SHA" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Don't sleep after the final attempt — fall through to fail.
+            if [ "$attempt" != "7" ]; then
+              sleep 60
+            fi
+          done
+
+          # Budget exhausted. Decide between the two distinct failure
+          # modes so the error message is actionable:
+          #   1. Field is missing entirely  → server is running an older
+          #      build that predates this workflow. Probably fine for
+          #      this first run after the workflow lands, but for any
+          #      subsequent run it means Railway hasn't deployed since.
+          #   2. Field is present but stale → Railway deployed at some
+          #      point but didn't pick up the most recent merge. This is
+          #      the canonical BUGS-18 symptom.
+          echo "matched=false" >> "$GITHUB_OUTPUT"
+          echo "live_sha=$LIVE_SHA" >> "$GITHUB_OUTPUT"
+
+          if [ "$LIVE_SHA" = "(missing)" ] || [ "$LIVE_SHA" = "(unknown)" ]; then
+            echo "::error::mcp.checklyra.com is missing the build_sha fingerprint (got '$LIVE_SHA'). Either Railway has not deployed since this workflow landed, OR the RAILWAY_GIT_COMMIT_SHA env var is not being injected into the server process. See BUGS-18."
+          elif [ "$LIVE_SHA" = "(probe-failed)" ]; then
+            echo "::error::Could not reach https://mcp.checklyra.com/.well-known/mcp.json. The server may be down — check Railway dashboard. See BUGS-18."
+          else
+            echo "::error::Live build_sha ($LIVE_SHA) does not match main HEAD ($EXPECTED) after 10min. Railway auto-deploy from main is stale. Check the Railway dashboard → Project lyra-mcp-server → Deployments tab. See BUGS-18."
+          fi
+          exit 1
+
+      - name: Summary
+        if: always()
+        env:
+          EXPECTED: ${{ steps.expected.outputs.expected }}
+          MATCHED: ${{ steps.probe.outputs.matched }}
+          LIVE_SHA: ${{ steps.probe.outputs.live_sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Post-merge deploy smoke"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Expected SHA (main HEAD) | \`$EXPECTED\` |"
+            echo "| Live build_sha          | \`$LIVE_SHA\` |"
+            echo "| Match                   | \`$MATCHED\` |"
+            echo ""
+            if [ "$MATCHED" = "true" ]; then
+              echo ":white_check_mark: Railway redeployed cleanly."
+            else
+              echo ":x: Railway deploy is stale. See BUGS-18 for runbook."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

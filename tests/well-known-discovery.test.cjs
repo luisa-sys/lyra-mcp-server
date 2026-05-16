@@ -58,6 +58,15 @@ describe('KAN-74a — MCP discovery endpoint invariants', () => {
     expect(indexSrc).toContain(`url: '${serverJson.repository.url}'`);
   });
 
+  test('mcp.json endpoint exposes the build_sha deploy-freshness fingerprint (BUGS-18)', () => {
+    // The post-merge-deploy-smoke workflow asserts that the live SHA on
+    // mcp.checklyra.com matches main HEAD after a merge. That assertion
+    // depends on this field being emitted by the endpoint — if a refactor
+    // drops it, the smoke check would silently return "(missing)" and
+    // become a noisy false-positive instead of catching the real failure.
+    expect(indexSrc).toMatch(/build_sha:\s*process\.env\.RAILWAY_GIT_COMMIT_SHA/);
+  });
+
   test('mcp.json tool list names every registered tool (read + write)', () => {
     // If a new tool is registered without being added to the discovery
     // doc, MCP-aware clients won't know about it. Cross-check by
