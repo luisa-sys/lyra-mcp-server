@@ -40,6 +40,33 @@ Every KAN Task/Story description MUST include all six sections:
 5. **Architecture Impact** — docs/env vars/dependencies to update
 6. **Acceptance Criteria**
 
+## MCP-main lockstep policy (KAN-222 — mirror)
+
+This repo and `luisa-sys/lyra` are two surfaces of the same product. **Every user-facing feature in the main repo must ship MCP tool coverage in the same epic, or carry an explicit deferral annotation.** Canonical policy in `lyra/CLAUDE.md` → "MCP-main lockstep policy"; this section is the mirror.
+
+Applied to this repo, it means:
+
+- **A KAN ticket landing in `luisa-sys/lyra` against user data should produce a paired PR here.** When you pick up an MCP-related KAN ticket, check whether a paired main-app PR is already open.
+- **Read tools (`lyra_list_*`, `lyra_get_*`, `lyra_search_*`)** are public — no API key needed. New entities exposed in the main app must have a read tool here within the same epic.
+- **Write tools** require the existing API-key auth (post-KAN-88: bearer JWT). User-action parity: if the main app lets a user create/edit/delete an entity, MCP gets a `lyra_<verb>_*` write tool.
+- **Static-grep guards** enforce data scoping. `mcp-visibility-guard.test.cjs` and (post-Convene-P1) `mcp-ownership-guard.test.cjs` fail CI if a `from(...)` read is missing its visibility or ownership filter. Add new guards alongside new tables.
+- **Deferral annotation** — if MCP coverage is intentionally not in scope for an epic, the parent KAN ticket must contain the literal line `MCP coverage: deferred — <reason> (follow-up: KAN-XYZ)`. The follow-up ticket must exist before merge.
+
+### Deploy order
+
+When shipping a feature with both main-app and MCP changes:
+
+1. Merge the MCP PR to `main` first — Railway auto-deploys.
+2. Wait for `mcp-dev.checklyra.com/health` (or `mcp.checklyra.com/health` for production) to report the new build.
+3. Then merge the main-app PR — Vercel auto-deploys.
+4. End-to-end test exercises the new tool from an agent against the deployed pair.
+
+Reverse for rollback: web first (Vercel revert), then MCP (Railway redeploy of previous).
+
+### Source of truth
+
+`luisa-sys/lyra/CLAUDE.md` → "MCP-main lockstep policy". This file is intentionally short — the full reviewer checklist, kicks-in-when conditions, and rationale live in the main repo. Keep this section in sync if the canonical one changes.
+
 ## Deployment
 
 - This repo deploys to Railway at [mcp.checklyra.com](http://mcp.checklyra.com) (prod) and [mcp-dev.checklyra.com](http://mcp-dev.checklyra.com) (dev)
