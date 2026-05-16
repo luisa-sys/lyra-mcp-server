@@ -467,21 +467,46 @@ if (TRANSPORT === 'stdio') {
     });
   });
 
+  // KAN-74a: discovery endpoint shaped to the official MCP Registry
+  // server.json schema. The Registry validator fetches this URL when
+  // we publish our server entry, so the JSON has to round-trip through
+  // its schema check. Lyra-specific extension fields (description_long,
+  // tools, authentication, documentation) sit alongside the canonical
+  // ones — extra fields are allowed by the schema.
   app.get('/.well-known/mcp.json', (_req, res) => {
     res.json({
-      name: 'Lyra MCP Server',
-      description: 'Lyra profile platform — read public profiles, manage your own profile via API key authentication.',
-      url: 'https://mcp.checklyra.com',
-      transport: 'streamable-http',
-      endpoint: 'https://mcp.checklyra.com/mcp',
-      authentication: 'api_key (for write tools)',
+      $schema: 'https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json',
+      // Canonical namespace — matches the in-repo server.json. Required
+      // by the Registry to authenticate publish requests via GitHub.
+      name: 'io.github.luisa-sys/lyra-mcp-server',
+      description: 'Search, read, and manage Lyra profiles.',
+      version: '2.0.0',
+      repository: {
+        url: 'https://github.com/luisa-sys/lyra-mcp-server',
+        source: 'github',
+      },
+      remotes: [
+        {
+          type: 'streamable-http',
+          url: 'https://mcp.checklyra.com/mcp',
+        },
+      ],
+      // Lyra-specific supplementary fields — useful for human readers
+      // and for directories that scan beyond the registry minimum.
+      display_name: 'Lyra MCP Server',
+      description_long: 'Lyra profile platform — read public profiles, get gift recommendations, and manage your own profile via API key authentication.',
+      documentation: 'https://checklyra.com/llms.txt',
+      authentication: 'api_key (for write tools); read tools are public',
       tools: [
+        // Read tools (no auth required)
         'lyra_search_profiles',
         'lyra_get_profile',
         'lyra_get_section',
         'lyra_recommend_gifts',
         'lyra_get_insights',
         'lyra_list_schools',
+        'lyra_get_onboarding_coaching',
+        // Write tools (require x-api-key header)
         'lyra_update_profile',
         'lyra_add_item',
         'lyra_remove_item',
@@ -490,10 +515,32 @@ if (TRANSPORT === 'stdio') {
         'lyra_add_link',
         'lyra_remove_link',
         'lyra_publish_profile',
-        'lyra_get_onboarding_coaching',
       ],
-      repository: 'https://github.com/luisa-sys/lyra-mcp-server',
-      documentation: 'https://checklyra.com/llms.txt',
+    });
+  });
+
+  // KAN-74a: Protected Resource Metadata stub (RFC 9728) for future MCP
+  // OAuth 2.1 support (KAN-88). Today we still authenticate write tools
+  // via api-key; this endpoint is a forward declaration so clients that
+  // probe for OAuth-aware servers find the right authorization server
+  // when KAN-88 lands.
+  //
+  // The MCP spec's PRM document points at the authorization server
+  // (checklyra.com, the Next.js web app) that will eventually host
+  // /oauth/authorize and /oauth/token. Until KAN-88 implements those
+  // routes, this endpoint serves a non-binding pointer — clients can
+  // discover the future shape without breaking on missing endpoints.
+  app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+    res.json({
+      resource: 'https://mcp.checklyra.com',
+      authorization_servers: ['https://checklyra.com'],
+      scopes_supported: ['profile:read', 'profile:write'],
+      bearer_methods_supported: ['header'],
+      // Until KAN-88 lands, OAuth isn't actually wired — we advertise
+      // the future shape so clients can plan, not promise it works now.
+      // The api-key auth on write tools is documented separately on
+      // /.well-known/mcp.json's `authentication` field.
+      _status: 'KAN-88-pending',
     });
   });
 
