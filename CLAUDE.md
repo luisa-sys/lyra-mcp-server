@@ -23,6 +23,8 @@ The lyra repo's `CLAUDE.md` is the source of truth for this policy. Briefly:
 - For manually-launched sessions, `git worktree add ../<repo>-<branch> origin/main` (or `origin/develop` in the lyra repo) before invoking `claude`.
 - Pre-commit safety check: `git branch --show-current` must equal the branch you intended. If it doesn't, do not commit — recover per BUGS-17's recovery section.
 
+**Cleanup is mandatory at end of session:** every worktree Claude created must be either removed (work merged or abandoned) or explicitly noted as "kept for next session" in the session summary. Use `git worktree remove ../<worktree-name>` (or `ExitWorktree action="remove"` if EnterWorktree was used). Run `git worktree prune` afterwards to clear stale registry entries. Never `rm -rf` a worktree directory — that leaves zombie metadata in `.git/worktrees/`. Full cleanup decision tree is in `lyra/CLAUDE.md`.
+
 When in doubt, prefer a worktree. Disk is cheap; mixed-feature PRs that ship contaminated code are not.
 
 ## Jira Ticket Standard
