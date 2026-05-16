@@ -10,6 +10,20 @@ Before starting any task, Claude must:
 2. **Check the lyra repo's docs/** — architecture docs live in the main lyra repo at `docs/`. Read relevant docs before acting on architecture, ops, or infrastructure questions.
 3. **Check for existing work** — search the codebase and recent PRs to avoid duplicating effort.
 4. **Run tests before and after** — every change must leave tests green.
+5. **Confirm working tree isolation** — if any other Claude Code instance might be running against this repo, this session MUST run inside its own git worktree (see "Parallel Claude sessions" below). Verify with `git branch --show-current` at the start of work AND right before every commit; if HEAD has changed unexpectedly, stop and recover (BUGS-17).
+
+## Parallel Claude sessions — use git worktrees
+
+Luisa runs multiple Claude Code instances in parallel to work on independent features. **All instances after the first MUST operate in a git worktree** rather than the shared main checkout. Without isolation, parallel processes switch HEAD mid-flow and contaminate each other's commits — see BUGS-17 for the canonical incident (KAN-69a work landed on top of KAN-191 commits because two Claude sessions were sharing one checkout).
+
+The lyra repo's `CLAUDE.md` is the source of truth for this policy. Briefly:
+
+- Use `EnterWorktree` (Claude Code built-in) to isolate the current session.
+- For sub-agents, pass `isolation: "worktree"` on the Agent tool call.
+- For manually-launched sessions, `git worktree add ../<repo>-<branch> origin/main` (or `origin/develop` in the lyra repo) before invoking `claude`.
+- Pre-commit safety check: `git branch --show-current` must equal the branch you intended. If it doesn't, do not commit — recover per BUGS-17's recovery section.
+
+When in doubt, prefer a worktree. Disk is cheap; mixed-feature PRs that ship contaminated code are not.
 
 ## Jira Ticket Standard
 
@@ -26,11 +40,35 @@ Every KAN Task/Story description MUST include all six sections:
 
 ## Deployment
 
-- This repo deploys to Railway at [mcp.checklyra.com](http://mcp.checklyra.com)
-- Railway auto-deploys from `main` branch
+- This repo deploys to Railway at [mcp.checklyra.com](http://mcp.checklyra.com) (prod) and [mcp-dev.checklyra.com](http://mcp-dev.checklyra.com) (dev)
+- Railway auto-deploys from `main` branch via the Railway GitHub App
 - Push to main only after tests pass
-- Production MCP server points to production Supabase
+- Production MCP server points to production Supabase; dev MCP server points to dev Supabase (see Gotcha #6)
 - Current test floor: **64 tests** (2 suites)
+
+### Railway settings — DO NOT CHANGE WITHOUT READING BUGS-18
+
+Both Railway services (`lyra-mcp-server` and `lyra-mcp-dev`) are configured with:
+
+- **Source Repo**: `luisa-sys/lyra-mcp-server`, branch `main`, auto-deploy ON.
+- **Wait for CI**: **OFF**. This is load-bearing. Do not flip it back on.
+- **GitHub App scope**: this single repo only (not "All repositories"), so a future repo-rename in this org won't quietly grant Railway write access to unrelated repos.
+
+**Why Wait for CI must stay off:** With it ON, Railway waits for every GitHub-posted check_suite (Vercel/Cloudflare/Supabase/etc.) to resolve before deploying. Any third-party app that posts a check_suite but never resolves it (broken webhook, app uninstalled, etc.) wedges Railway indefinitely. That's the "phantom check_suite" outage we hit in May 2026 and tracked under BUGS-18. With it OFF, Railway deploys on push and the `post-merge-deploy-smoke.yml` workflow asserts the live `build_sha` matches main HEAD within ~10 min — so any deploy regression is still caught fast, without depending on third-party check resolution.
+
+**Why this is safe:** PR-side CI (`test.yml` triggered on `pull_request`) is the actual quality gate. By the time something reaches main, CI passed. The merge-commit CI run is redundant for the deploy decision.
+
+### Deploy verification
+
+After any change to Railway settings, the source repo connection, or the build pipeline:
+
+```bash
+# Should return the current main HEAD SHA
+curl -s https://mcp.checklyra.com/.well-known/mcp.json | jq -r .build_sha
+git rev-parse origin/main
+```
+
+The two values must match within ~3 min of any push to main. If they don't, the `post-merge-deploy-smoke.yml` GitHub Action will fail loud within ~10 min — see BUGS-18 for the runbook.
 
 ## Testing Requirements
 
