@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { getSupabase } from './supabase.js';
 import { registerWriteTools } from './write-tools.js';
+import { registerConveneTools } from './convene-tools.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // KAN-143 — VISIBILITY FILTER IS LOAD-BEARING.
@@ -703,6 +704,7 @@ server.registerTool(
 // ── Register Write Tools (KAN-6 Phase 2) ───────────────────
 
 registerWriteTools(server);
+registerConveneTools(server);
 
 // ── Transport Setup ─────────────────────────────────────────────
 
