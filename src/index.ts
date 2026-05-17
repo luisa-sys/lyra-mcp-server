@@ -845,6 +845,28 @@ if (TRANSPORT === 'stdio') {
     res.json({ status: 'ok', server: 'lyra-mcp-server', version: '1.0.0' });
   });
 
+  // ── /.well-known/oauth-protected-resource (KAN-88) ───────────
+  // RFC 9728. Tells MCP clients which authorization server protects this
+  // resource server, so they can discover where to obtain tokens.
+  //
+  // LYRA_SITE_URL is set per-environment on Railway:
+  //   dev MCP  → https://dev.checklyra.com
+  //   prod MCP → https://checklyra.com
+  app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+    const authServer = process.env.LYRA_SITE_URL || 'https://checklyra.com';
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json({
+      resource: process.env.MCP_RESOURCE_URL || 'https://mcp.checklyra.com/mcp',
+      authorization_servers: [authServer.replace(/\/$/, '')],
+      bearer_methods_supported: ['header'],
+      // Single MVP scope.
+      scopes_supported: ['lyra:full'],
+      // Tells clients where to find user-facing docs about this resource.
+      resource_documentation: `${authServer.replace(/\/$/, '')}/docs/mcp-oauth`,
+    });
+  });
+
   // MCP discovery and metadata endpoints
   app.get('/robots.txt', (_req, res) => {
     res.type('text/plain').send('User-agent: *\nAllow: /\nHost: https://mcp.checklyra.com\n');
