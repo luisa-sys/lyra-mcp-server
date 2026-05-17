@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import express from 'express';
+import { toolCallLogMiddleware } from './tool-call-log.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -802,6 +803,14 @@ if (TRANSPORT === 'stdio') {
     ],
     methods: ['GET', 'POST'],
   }));
+
+  // ── Tool-call audit log (KAN-232) ────────────────────────────
+  // Logs every POST /mcp request to public.mcp_tool_call_log. Gated
+  // by MCP_TOOL_CALL_LOG_ENABLED=true so it's safe to ship before the
+  // migration is promoted across all envs. Mounted BEFORE the rate
+  // limiter so even rate-limited requests appear in the log (KAN-233
+  // alerting consumes the same table).
+  app.use(toolCallLogMiddleware);
 
   // ── Rate Limiting (KAN-118) ──────────────────────────────────
   // Global: 100 requests per minute per IP
