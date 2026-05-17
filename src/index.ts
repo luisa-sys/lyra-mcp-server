@@ -16,6 +16,8 @@ import { registerConveneRecommendTools } from './convene-recommend-tools.js';
 import { registerConveneSuggestVenuesTool } from './convene-suggest-venues-tool.js';
 import { registerConveneInviteTools } from './convene-invite-tools.js';
 import { registerConveneDrainTool } from './convene-drain-tool.js';
+import { validateOAuthAccessToken, looksLikeJwt } from './oauth-jwt.js';
+import { requestContext, OAUTH_AUTHED_SENTINEL } from './request-context.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // KAN-143 — VISIBILITY FILTER IS LOAD-BEARING.
@@ -814,28 +816,57 @@ if (TRANSPORT === 'stdio') {
     next();
   });
 
-  // ── Bearer-header → api_key backfill (KAN-240) ───────────────
-  // Standard MCP clients (claude.ai, Claude Desktop, Cursor) send the
-  // user-configured token as `Authorization: Bearer …`. Our tools still
-  // accept `api_key` as a per-call argument for back-compat. This
-  // middleware backfills the argument from the header so a client only
-  // needs to set the token once in its connector settings, not on every
-  // tool call. If both are present, the explicit per-call `api_key` wins
-  // (so an agent can target a different user without reconfiguring).
-  app.use('/mcp', (req, _res, next) => {
+  // ── Bearer-header auth (KAN-240 + KAN-88) ────────────────────
+  // Standard MCP clients send the user-configured token as
+  // `Authorization: Bearer …`. We accept two token shapes:
+  //
+  //   - `lyra_…` opaque API keys — backfilled into args.api_key,
+  //     the tool then calls authenticateApiKey() as before.
+  //   - JWTs (`eyJ…`) issued by lyra's OAuth AS — validated here,
+  //     resolved user_id stashed in AsyncLocalStorage, args.api_key
+  //     replaced with the OAUTH_AUTHED_SENTINEL so tool schema
+  //     validation still passes.
+  //
+  // Per-call `api_key` argument wins over a `lyra_…` Bearer when
+  // both are present (so an agent can target a different user
+  // without reconfiguring). For JWT Bearer, the OAuth identity is
+  // authoritative — any args.api_key is ignored.
+  app.use('/mcp', async (req, res, next) => {
     if (req.method !== 'POST') return next();
     const authHeader = req.headers['authorization'];
     if (typeof authHeader !== 'string') return next();
     const m = authHeader.match(/^Bearer\s+(\S+)$/);
     if (!m) return next();
     const token = m[1];
-    if (!token.startsWith('lyra_')) return next();
-    // Only fill in if the call is a tools/call AND the per-call arg is
-    // missing or empty. Don't touch other JSON-RPC methods.
+
     const body = req.body;
     if (body?.method !== 'tools/call') return next();
     const args = body?.params?.arguments;
     if (!args || typeof args !== 'object') return next();
+
+    // JWT path (KAN-88).
+    if (looksLikeJwt(token)) {
+      try {
+        const result = await validateOAuthAccessToken(token);
+        if (result.ok) {
+          args.api_key = OAUTH_AUTHED_SENTINEL;
+          requestContext.run(
+            { oauthUserId: result.userId, oauthClientId: result.clientId, oauthJti: result.jti, oauthScope: result.scope },
+            () => next()
+          );
+          return;
+        }
+        // JWT-shaped but invalid — fall through; the tool will reject
+        // with 'API key required' or similar. (P6 will reshape this to
+        // a clean 401 + WWW-Authenticate.)
+      } catch {
+        // Likely OAUTH_JWT_SIGNING_SECRET not set on this deploy. Fall through.
+      }
+      return next();
+    }
+
+    // Legacy lyra_ path (KAN-240).
+    if (!token.startsWith('lyra_')) return next();
     if (typeof args.api_key === 'string' && args.api_key.length > 0) return next();
     args.api_key = token;
     next();

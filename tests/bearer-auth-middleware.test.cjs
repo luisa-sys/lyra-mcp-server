@@ -20,7 +20,12 @@ describe('Bearer auth backfill middleware (KAN-240)', () => {
     // easily inspect Express runtime order from a static test, but we can
     // check the source order — middleware block appears BEFORE the
     // `app.post('/mcp', ...)` handler in the file.
-    const midIdx = indexSrc.indexOf("Bearer-header → api_key backfill");
+    // Comment header was renamed in KAN-88 P5 (now "Bearer-header auth").
+    // Either spelling is acceptable — we just need the comment to exist.
+    const midIdx = Math.max(
+      indexSrc.indexOf("Bearer-header → api_key backfill"),
+      indexSrc.indexOf("Bearer-header auth")
+    );
     const postIdx = indexSrc.indexOf("app.post('/mcp'");
     expect(midIdx).toBeGreaterThan(-1);
     expect(postIdx).toBeGreaterThan(-1);
