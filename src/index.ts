@@ -15,6 +15,7 @@ import { registerConveneGatheringTools } from './convene-gathering-tools.js';
 import { registerConveneRecommendTools } from './convene-recommend-tools.js';
 import { registerConveneSuggestVenuesTool } from './convene-suggest-venues-tool.js';
 import { registerConveneInviteTools } from './convene-invite-tools.js';
+import { registerConveneDrainTool } from './convene-drain-tool.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // KAN-143 — VISIBILITY FILTER IS LOAD-BEARING.
@@ -727,6 +728,7 @@ registerConveneGatheringTools(server);
 registerConveneRecommendTools(server);
 registerConveneSuggestVenuesTool(server);
 registerConveneInviteTools(server);
+registerConveneDrainTool(server);
 
 // ── Transport Setup ─────────────────────────────────────────────
 
