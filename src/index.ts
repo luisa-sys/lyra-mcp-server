@@ -18,6 +18,7 @@ import { registerConveneInviteTools } from './convene-invite-tools.js';
 import { registerConveneDrainTool } from './convene-drain-tool.js';
 import { validateOAuthAccessToken, looksLikeJwt } from './oauth-jwt.js';
 import { requestContext, OAUTH_AUTHED_SENTINEL } from './request-context.js';
+import { wwwAuthenticateBearer } from './oauth-www-authenticate.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // KAN-143 — VISIBILITY FILTER IS LOAD-BEARING.
@@ -856,13 +857,34 @@ if (TRANSPORT === 'stdio') {
           );
           return;
         }
-        // JWT-shaped but invalid — fall through; the tool will reject
-        // with 'API key required' or similar. (P6 will reshape this to
-        // a clean 401 + WWW-Authenticate.)
+        // JWT-shaped but invalid — respond 401 + WWW-Authenticate so
+        // claude.ai can refresh or re-authorize (KAN-88 P6, RFC 6750
+        // + MCP authorization spec).
+        const errCode = result.error === 'expired' ? 'invalid_token' : 'invalid_token';
+        const errDesc = result.error;
+        res
+          .status(401)
+          .set('WWW-Authenticate', wwwAuthenticateBearer(errCode, errDesc))
+          .json({
+            jsonrpc: '2.0',
+            id: body?.id ?? null,
+            error: { code: -32001, message: `Unauthorized: ${errDesc}` },
+          });
+        return;
       } catch {
-        // Likely OAUTH_JWT_SIGNING_SECRET not set on this deploy. Fall through.
+        // OAUTH_JWT_SIGNING_SECRET not set on this deploy — treat as 401
+        // so the client gets a discoverable error rather than a silent
+        // pass-through to api_key auth failure.
+        res
+          .status(401)
+          .set('WWW-Authenticate', wwwAuthenticateBearer('server_error', 'oauth not configured on this server'))
+          .json({
+            jsonrpc: '2.0',
+            id: body?.id ?? null,
+            error: { code: -32001, message: 'Unauthorized: oauth not configured' },
+          });
+        return;
       }
-      return next();
     }
 
     // Legacy lyra_ path (KAN-240).
