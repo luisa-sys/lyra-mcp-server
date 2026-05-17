@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getSupabase } from './supabase.js';
 import { authenticateApiKey, getProfileForUser } from './auth.js';
 import { sanitiseText, sanitiseUrl } from './sanitise.js';
+import { checkModeration } from './moderation-policy.js';
 
 /**
  * Helper: authenticate and get profile ID from API key.
@@ -64,6 +65,15 @@ export function registerWriteTools(server: McpServer) {
 
       if (Object.keys(updates).length === 0) return errorResponse('No fields to update');
 
+      // KAN-242 — content moderation. Mirrors the web-app server-action policy
+      // (KAN-241). Runs AFTER sanitiseText so post-strip text is what's
+      // checked. All profile fields are 'public' — they render on the
+      // public profile via [slug]/page.tsx.
+      for (const [key, val] of Object.entries(updates)) {
+        const mod = checkModeration(val, 'public', `profiles.${key}`);
+        if (!mod.ok) return errorResponse(mod.error);
+      }
+
       const sb = getSupabase();
       const { error } = await sb.from('profiles').update(updates).eq('id', auth.profileId);
       if (error) return errorResponse(error.message);
@@ -92,12 +102,22 @@ export function registerWriteTools(server: McpServer) {
       let auth: { userId: string; profileId: string; slug: string | undefined };
       try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
+      // KAN-242 — content moderation on item text fields.
+      const sanitisedTitle = sanitiseText(title, 200);
+      const sanitisedDesc = description ? sanitiseText(description, 1000) : null;
+      const titleMod = checkModeration(sanitisedTitle, 'public', 'profile_items.title');
+      if (!titleMod.ok) return errorResponse(titleMod.error);
+      if (sanitisedDesc) {
+        const descMod = checkModeration(sanitisedDesc, 'public', 'profile_items.description');
+        if (!descMod.ok) return errorResponse(descMod.error);
+      }
+
       const sb = getSupabase();
       const { data, error } = await sb.from('profile_items').insert({
         profile_id: auth.profileId,
         category,
-        title: sanitiseText(title, 200),
-        description: description ? sanitiseText(description, 1000) : null,
+        title: sanitisedTitle,
+        description: sanitisedDesc,
       }).select('id').single();
 
       if (error) return errorResponse(error.message);
@@ -149,11 +169,21 @@ export function registerWriteTools(server: McpServer) {
       let auth: { userId: string; profileId: string; slug: string | undefined };
       try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
+      // KAN-242 — content moderation. Affiliations render on the public profile.
+      const sanitisedName = sanitiseText(school_name, 200);
+      const sanitisedLoc = school_location ? sanitiseText(school_location, 200) : null;
+      const nameMod = checkModeration(sanitisedName, 'public', 'school_affiliations.school_name');
+      if (!nameMod.ok) return errorResponse(nameMod.error);
+      if (sanitisedLoc) {
+        const locMod = checkModeration(sanitisedLoc, 'public', 'school_affiliations.school_location');
+        if (!locMod.ok) return errorResponse(locMod.error);
+      }
+
       const sb = getSupabase();
       const { data, error } = await sb.from('school_affiliations').insert({
         profile_id: auth.profileId,
-        school_name: sanitiseText(school_name, 200),
-        school_location: school_location ? sanitiseText(school_location, 200) : null,
+        school_name: sanitisedName,
+        school_location: sanitisedLoc,
         relationship: relationship || 'parent',
       }).select('id').single();
 
@@ -183,10 +213,15 @@ export function registerWriteTools(server: McpServer) {
       const cleanUrl = sanitiseUrl(url);
       if (!cleanUrl) return errorResponse('Invalid URL — must start with http:// or https://');
 
+      // KAN-242 — moderation on link title (URL itself is sanitiseUrl-restricted).
+      const sanitisedLinkTitle = sanitiseText(title, 200);
+      const titleMod = checkModeration(sanitisedLinkTitle, 'public', 'external_links.title');
+      if (!titleMod.ok) return errorResponse(titleMod.error);
+
       const sb = getSupabase();
       const { data, error } = await sb.from('external_links').insert({
         profile_id: auth.profileId,
-        title: sanitiseText(title, 200),
+        title: sanitisedLinkTitle,
         url: cleanUrl,
         link_type: link_type || 'general',
       }).select('id').single();
