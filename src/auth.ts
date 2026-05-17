@@ -19,7 +19,7 @@ interface AuthResult {
  *   2. `lyra_…` opaque API keys — sha256 lookup against api_keys table
  *      (the original flow; unchanged).
  */
-export async function authenticateApiKey(apiKey: string): Promise<AuthResult> {
+export async function authenticateApiKey(apiKey: string | undefined): Promise<AuthResult> {
   // OAuth path — middleware already verified the JWT.
   if (apiKey === OAUTH_AUTHED_SENTINEL) {
     const ctx = requestContext.getStore();

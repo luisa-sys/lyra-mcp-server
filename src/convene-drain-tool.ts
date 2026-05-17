@@ -34,11 +34,11 @@ export function registerConveneDrainTool(server: McpServer) {
   server.registerTool(
     'lyra_drain_invite_queue',
     {
-      title: 'Drain the Invite Send Queue (manual cron substitute)',
+      title: 'Send Queued Invite Emails Now',
       description:
-        "Triggers the lyra-side dispatcher to send any queued invites belonging to YOUR gatherings via Resend. Use this on dev (where Vercel Cron does not fire on Preview branches) or as a manual one-off flush. Only your gatherings' queued rows are drained — one user cannot drain another's queue. Returns a per-status summary { sent, blocked_by_allowlist, failed, skipped_unfinalised }. Requires API key authentication.",
+        "Sends any of YOUR gatherings' queued invites to their recipients immediately, rather than waiting for the periodic background send. Useful right after you call lyra_send_invite if you want the email out the door without delay, or as a manual flush during testing. Only your gatherings' queued rows are processed — one user cannot drain another's queue. Returns a per-status summary { sent, blocked_by_allowlist, failed, skipped_unfinalised }. Requires API key authentication.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key (starts with lyra_)'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },

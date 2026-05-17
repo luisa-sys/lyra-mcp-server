@@ -57,13 +57,13 @@ export function registerConveneInviteTools(server: McpServer) {
       description:
         "Queues an invite to one of the gathering's invitees. Generates a secure RSVP token, stamps invited_at, persists a gathering_invite_messages row with delivery_status='queued', and appends gathering_invite_sent to the audit log. Returns the rsvp_url for the invitee. ACTUAL EMAIL SEND IS NOT TRIGGERED BY THIS TOOL — it queues the data and a lyra-side worker (or manual flow) sends via Resend with allowlist gating. This keeps the MCP server free of Resend credentials and gives a single chokepoint for anti-spam. Requires API key authentication. NOTE: All fields are user-generated.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         gathering_id: z.string().uuid().describe('Gathering ID'),
         invitee_id: z.string().uuid().describe('gathering_invitees.id of the invitee to send to'),
         channel: z
-          .enum(['email', 'sms', 'whatsapp', 'imessage'])
+          .enum(['email'])
           .default('email')
-          .describe('Channel to queue the invite on (default email; v1 only ships email-flow on the lyra side)'),
+          .describe('Channel to queue the invite on. Currently only email is supported; SMS / WhatsApp / iMessage are planned.'),
         template_name: z
           .string()
           .optional()
@@ -191,7 +191,7 @@ export function registerConveneInviteTools(server: McpServer) {
       description:
         "Host-side override: mark an invitee as accepted/declined/tentative/no_show/attended without going through the public RSVP page. Useful when someone responds verbally, by text, or in another channel. Appends rsvp_recorded to the gathering_events_log. Requires API key authentication.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         gathering_id: z.string().uuid().describe('Gathering ID'),
         invitee_id: z.string().uuid().describe('gathering_invitees.id'),
         new_status: z

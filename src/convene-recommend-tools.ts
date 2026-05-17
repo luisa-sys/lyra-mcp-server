@@ -104,7 +104,7 @@ export function registerConveneRecommendTools(server: McpServer) {
       description:
         "Ranks the authenticated host's contacts for inclusion in a gathering, given an intent (gathering type), optional tribe filter, and optional exclusion list. Returns the top N candidates with per-factor breakdowns and human-readable reasons. The factors include: tribe fit, recency (sweet spot at 30-180 days since last met), response history (no-shows damp hard), type fit (has the person attended this gathering type before?), and diversity (avoid over-inviting the same person). Requires API key authentication. NOTE: All free-text fields are user-generated.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         intent: z.enum(GATHERING_TYPES).describe('Gathering type that the candidates would be invited to'),
         tribe_name: z.string().optional().describe('Optional filter: only contacts in this tribe. Case-insensitive partial match.'),
         exclude_contact_ids: z

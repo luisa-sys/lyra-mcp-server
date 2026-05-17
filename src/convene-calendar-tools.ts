@@ -61,9 +61,9 @@ export function registerConveneCalendarTools(server: McpServer) {
     {
       title: 'Connect a Calendar Provider',
       description:
-        'Returns a URL the user should open in their browser to connect a calendar (Google, in P2; Microsoft + Apple in P7). The user must be signed in to checklyra.com first. Once they grant consent, Lyra stores an encrypted refresh token and the connection becomes available to other Convene tools. Requires API key authentication for the calling agent (so we know which user is asking).',
+        'Returns a URL the user should open in their browser to connect a calendar. Google Calendar is supported today; Microsoft and Apple are planned. The user must be signed in to checklyra.com first. Once they grant consent, Lyra stores an encrypted refresh token and the connection becomes available to other Convene tools. Requires API key authentication for the calling agent (so we know which user is asking).',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key (starts with lyra_)'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         provider: z
           .enum(['google'])
           .default('google')
@@ -102,7 +102,7 @@ export function registerConveneCalendarTools(server: McpServer) {
       description:
         'Soft-deletes one of the user\'s OAuth connections and revokes the vaulted refresh token. Requires API key authentication. Specify either provider_account_id (preferred) or just provider (disconnects the most-recently-created one for that provider).',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key (starts with lyra_)'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         provider: z
           .enum(['google', 'microsoft', 'apple', 'caldav_generic'])
           .describe('Provider to disconnect'),
