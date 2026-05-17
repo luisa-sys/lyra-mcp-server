@@ -18,7 +18,29 @@ import { registerConveneInviteTools } from './convene-invite-tools.js';
 import { registerConveneDrainTool } from './convene-drain-tool.js';
 import { validateOAuthAccessToken, looksLikeJwt } from './oauth-jwt.js';
 import { requestContext, OAUTH_AUTHED_SENTINEL } from './request-context.js';
-import { wwwAuthenticateBearer } from './oauth-www-authenticate.js';
+import { wwwAuthenticateBearer, type AuthenticateHeaderOpts } from './oauth-www-authenticate.js';
+import { requiresAuth } from './auth-registry.js';
+
+// Helper for the /mcp middleware below: respond 401 + WWW-Authenticate
+// so claude.ai (and any spec-compliant MCP client) discovers the OAuth
+// authorization server and starts the flow. Per claude.ai docs, this
+// is the ONLY trigger their connector honours — a 200 + JSON-RPC error
+// is silently surfaced to the user as plain text.
+function sendUnauthorized(
+  res: import('express').Response,
+  body: { id?: unknown } | undefined,
+  opts: AuthenticateHeaderOpts = {}
+) {
+  const message = opts.errorDescription ?? 'Authentication required';
+  res
+    .status(401)
+    .set('WWW-Authenticate', wwwAuthenticateBearer(opts))
+    .json({
+      jsonrpc: '2.0',
+      id: (body?.id as string | number | null | undefined) ?? null,
+      error: { code: -32001, message: `Unauthorized: ${message}` },
+    });
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // KAN-143 — VISIBILITY FILTER IS LOAD-BEARING.
@@ -834,19 +856,19 @@ if (TRANSPORT === 'stdio') {
   // authoritative — any args.api_key is ignored.
   app.use('/mcp', async (req, res, next) => {
     if (req.method !== 'POST') return next();
-    const authHeader = req.headers['authorization'];
-    if (typeof authHeader !== 'string') return next();
-    const m = authHeader.match(/^Bearer\s+(\S+)$/);
-    if (!m) return next();
-    const token = m[1];
-
     const body = req.body;
     if (body?.method !== 'tools/call') return next();
     const args = body?.params?.arguments;
     if (!args || typeof args !== 'object') return next();
+    const toolName: string | undefined = body?.params?.name;
 
-    // JWT path (KAN-88).
-    if (looksLikeJwt(token)) {
+    const authHeader = req.headers['authorization'];
+    const bearerMatch =
+      typeof authHeader === 'string' ? authHeader.match(/^Bearer\s+(\S+)$/) : null;
+    const token = bearerMatch ? bearerMatch[1] : null;
+
+    // ── Path 1: JWT Bearer (OAuth path). ───────────────────────
+    if (token && looksLikeJwt(token)) {
       try {
         const result = await validateOAuthAccessToken(token);
         if (result.ok) {
@@ -857,40 +879,40 @@ if (TRANSPORT === 'stdio') {
           );
           return;
         }
-        // JWT-shaped but invalid — respond 401 + WWW-Authenticate so
-        // claude.ai can refresh or re-authorize (KAN-88 P6, RFC 6750
-        // + MCP authorization spec).
-        const errCode = result.error === 'expired' ? 'invalid_token' : 'invalid_token';
-        const errDesc = result.error;
-        res
-          .status(401)
-          .set('WWW-Authenticate', wwwAuthenticateBearer(errCode, errDesc))
-          .json({
-            jsonrpc: '2.0',
-            id: body?.id ?? null,
-            error: { code: -32001, message: `Unauthorized: ${errDesc}` },
-          });
-        return;
+        // JWT-shaped but invalid → 401 + WWW-Authenticate so claude.ai
+        // can refresh or re-authorize.
+        return sendUnauthorized(res, body, {
+          error: 'invalid_token',
+          errorDescription: result.error,
+        });
       } catch {
-        // OAUTH_JWT_SIGNING_SECRET not set on this deploy — treat as 401
-        // so the client gets a discoverable error rather than a silent
-        // pass-through to api_key auth failure.
-        res
-          .status(401)
-          .set('WWW-Authenticate', wwwAuthenticateBearer('server_error', 'oauth not configured on this server'))
-          .json({
-            jsonrpc: '2.0',
-            id: body?.id ?? null,
-            error: { code: -32001, message: 'Unauthorized: oauth not configured' },
-          });
-        return;
+        // OAUTH_JWT_SIGNING_SECRET not set on this deploy.
+        return sendUnauthorized(res, body, {
+          error: 'server_error',
+          errorDescription: 'oauth not configured on this server',
+        });
       }
     }
 
-    // Legacy lyra_ path (KAN-240).
-    if (!token.startsWith('lyra_')) return next();
-    if (typeof args.api_key === 'string' && args.api_key.length > 0) return next();
-    args.api_key = token;
+    // ── Path 2: lyra_ Bearer (legacy API key in header). ───────
+    if (token && token.startsWith('lyra_')) {
+      if (typeof args.api_key !== 'string' || args.api_key.length === 0) {
+        args.api_key = token;
+      }
+      // Either way, fall through — the tool will validate the key.
+      return next();
+    }
+
+    // ── Path 3: no Bearer (or unknown shape). ──────────────────
+    // If the called tool requires auth AND the client didn't supply
+    // api_key in args, return 401 + WWW-Authenticate so claude.ai's
+    // MCP connector triggers its OAuth discovery flow. Per claude.ai
+    // docs, OAuth fires only on a 401 with this header; a JSON-RPC
+    // error returned at 200 OK is silently surfaced to the user.
+    const hasApiKeyArg = typeof args.api_key === 'string' && args.api_key.length > 0;
+    if (!hasApiKeyArg && toolName && requiresAuth(toolName)) {
+      return sendUnauthorized(res, body);
+    }
     next();
   });
 
