@@ -10,6 +10,7 @@ import { getSupabase } from './supabase.js';
 import { registerWriteTools } from './write-tools.js';
 import { registerConveneTools } from './convene-tools.js';
 import { registerConveneCalendarTools } from './convene-calendar-tools.js';
+import { registerConveneAvailabilityTools } from './convene-availability-tool.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // KAN-143 — VISIBILITY FILTER IS LOAD-BEARING.
@@ -707,6 +708,7 @@ server.registerTool(
 registerWriteTools(server);
 registerConveneTools(server);
 registerConveneCalendarTools(server);
+registerConveneAvailabilityTools(server);
 
 // ── Transport Setup ─────────────────────────────────────────────
 
