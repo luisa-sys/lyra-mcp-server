@@ -52,7 +52,10 @@ server.registerTool(
   },
   async ({ query, school, limit }) => {
     const sb = getSupabase();
-    let q = sb.from('profiles').select('slug, display_name, headline, city, country').eq('is_published', true);
+    // BUGS-21: chain is_suspended=false so suspended profiles don't appear
+    // in search results. The service-role client bypasses RLS so app code
+    // must enforce this filter — same threat model as KAN-143 visibility.
+    let q = sb.from('profiles').select('slug, display_name, headline, city, country').eq('is_published', true).eq('is_suspended', false);
 
     if (query) {
       q = q.or(`display_name.ilike.%${query}%,headline.ilike.%${query}%,bio_short.ilike.%${query}%,city.ilike.%${query}%`);
@@ -74,7 +77,8 @@ server.registerTool(
       const { data: allProfiles } = await sb
         .from('profiles')
         .select('id, slug, display_name, headline, city, country')
-        .eq('is_published', true);
+        .eq('is_published', true)
+        .eq('is_suspended', false);   // BUGS-21
 
       results = (allProfiles || []).filter((p) => profileIds.has(p.id));
     }
@@ -109,6 +113,7 @@ server.registerTool(
         .select('slug')
         .ilike('display_name', `%${name}%`)
         .eq('is_published', true)
+        .eq('is_suspended', false)   // BUGS-21
         .limit(1)
         .single();
       profileSlug = data?.slug;
@@ -123,6 +128,7 @@ server.registerTool(
       .select('*')
       .eq('slug', profileSlug)
       .eq('is_published', true)
+      .eq('is_suspended', false)   // BUGS-21
       .single();
 
     if (error || !profile) {
@@ -226,6 +232,7 @@ server.registerTool(
       .select('id, display_name')
       .eq('slug', slug)
       .eq('is_published', true)
+      .eq('is_suspended', false)   // BUGS-21
       .single();
 
     if (!profile) {
@@ -509,6 +516,7 @@ server.registerTool(
       .select('id, display_name, headline')
       .eq('slug', slug)
       .eq('is_published', true)
+      .eq('is_suspended', false)   // BUGS-21
       .single();
 
     if (!profile) {
@@ -621,6 +629,7 @@ server.registerTool(
       .select('id, display_name, headline, bio_short, city, country')
       .eq('slug', slug)
       .eq('is_published', true)
+      .eq('is_suspended', false)   // BUGS-21
       .single();
 
     if (!profile) {
@@ -679,8 +688,9 @@ server.registerTool(
 
     let q = sb
       .from('school_affiliations')
-      .select('school_name, school_location, relationship, profiles!inner(slug, display_name, is_published)')
-      .eq('profiles.is_published', true);
+      .select('school_name, school_location, relationship, profiles!inner(slug, display_name, is_published, is_suspended)')
+      .eq('profiles.is_published', true)
+      .eq('profiles.is_suspended', false);   // BUGS-21
 
     if (query) {
       q = q.ilike('school_name', `%${query}%`);
