@@ -41,7 +41,7 @@ export function registerWriteTools(server: McpServer) {
       description:
         'Update profile fields like display name, headline, bio, city, country. Requires API key authentication.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key (starts with lyra_)'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         display_name: z.string().optional().describe('Display name'),
         headline: z.string().optional().describe('Short headline/tagline'),
         bio_short: z.string().optional().describe('Short bio (max 300 chars)'),
@@ -80,7 +80,7 @@ export function registerWriteTools(server: McpServer) {
       description:
         'Add a like, dislike, gift idea, boundary, or other item to a Lyra profile. Requires API key.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         category: z.enum(['gift_ideas', 'gifts_to_avoid', 'likes', 'dislikes', 'helpful_to_know', 'boundaries'])
           .describe('Item category'),
         title: z.string().describe('Item title (e.g. "Dark chocolate", "No surprise visits")'),
@@ -112,7 +112,7 @@ export function registerWriteTools(server: McpServer) {
       title: 'Remove Profile Item',
       description: 'Remove an item from a Lyra profile by ID. Requires API key.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         item_id: z.string().describe('Item UUID to remove'),
       },
       annotations: { destructiveHint: true },
@@ -138,7 +138,7 @@ export function registerWriteTools(server: McpServer) {
       title: 'Add School Affiliation',
       description: 'Add a school connection to a Lyra profile. Requires API key.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         school_name: z.string().describe('School name'),
         school_location: z.string().optional().describe('Location'),
         relationship: z.enum(['parent', 'student', 'alumni', 'staff', 'other']).optional().describe('Relationship to school'),
@@ -169,7 +169,7 @@ export function registerWriteTools(server: McpServer) {
       title: 'Add External Link',
       description: 'Add a wishlist, shop, or link to a Lyra profile. Requires API key.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         title: z.string().describe('Link title'),
         url: z.string().describe('URL (must start with http:// or https://)'),
         link_type: z.enum(['wishlist', 'retailer', 'article', 'general']).optional(),
@@ -203,7 +203,7 @@ export function registerWriteTools(server: McpServer) {
       title: 'Publish or Unpublish Profile',
       description: 'Set a Lyra profile to published (visible to everyone) or unpublished (hidden). Requires API key.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         published: z.boolean().describe('true to publish, false to unpublish'),
       },
       annotations: { destructiveHint: false, idempotentHint: true },
@@ -229,7 +229,7 @@ export function registerWriteTools(server: McpServer) {
       title: 'Remove School Affiliation',
       description: 'Remove a school affiliation by ID. Requires API key.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         school_id: z.string().describe('School affiliation UUID to remove'),
       },
       annotations: { destructiveHint: true },
@@ -253,7 +253,7 @@ export function registerWriteTools(server: McpServer) {
       title: 'Remove External Link',
       description: 'Remove an external link by ID. Requires API key.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         link_id: z.string().describe('Link UUID to remove'),
       },
       annotations: { destructiveHint: true },
@@ -278,7 +278,7 @@ export function registerWriteTools(server: McpServer) {
       description:
         'Get guidance on how to help a user build their Lyra profile. Returns the recommended questions and flow for AI companions to gather profile information conversationally.',
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
       },
       annotations: { readOnlyHint: true },
     },

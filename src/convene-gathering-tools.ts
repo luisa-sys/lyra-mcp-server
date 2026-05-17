@@ -98,7 +98,7 @@ export function registerConveneGatheringTools(server: McpServer) {
       description:
         "Creates a new gathering in 'draft' state with optional proposed time slots and invitees. The agent-driven flow is: propose attendees → check availability → call create_gathering with the user's intent + 2-3 slot candidates + invitee contact_ids. Status starts as 'draft' until lyra_finalise_gathering locks the slot. Requires API key authentication. NOTE: All free-text fields are user-generated.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         title: z.string().min(1).max(200).describe('Short title — what is this gathering?'),
         gathering_type: z
           .enum(GATHERING_TYPES)
@@ -216,9 +216,9 @@ export function registerConveneGatheringTools(server: McpServer) {
     {
       title: 'Update a Gathering',
       description:
-        "Edit a gathering's fields. Only works while the gathering is in 'draft', 'live', or 'awaiting_responses' state. Append-only audit entry recorded for every change. Requires API key authentication. To change the slot or venue, prefer lyra_finalise_gathering (draft only) or lyra_reschedule_gathering (live; P6).",
+        "Edit a gathering's fields. Only works while the gathering is in 'draft', 'live', or 'awaiting_responses' state. Append-only audit entry recorded for every change. Requires API key authentication. To change the slot or venue on a draft gathering, prefer lyra_finalise_gathering. Rescheduling a live gathering is not yet supported via MCP.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         gathering_id: z.string().uuid().describe('Gathering ID'),
         title: z.string().min(1).max(200).optional(),
         description: z.string().max(2000).optional(),
@@ -298,9 +298,9 @@ export function registerConveneGatheringTools(server: McpServer) {
     {
       title: 'Finalise a Gathering (draft → live)',
       description:
-        "Locks the final slot (and optionally venue) and transitions a draft gathering to 'live'. Records the transition in gathering_events_log. Does NOT send invites yet — that's P5 (lyra_send_invite). Calendar event creation on the host's connected calendar is handled by the lyra-side UI's separate 'Add to my calendar' action; this tool just locks the data. Requires API key authentication.",
+        "Locks the final slot (and optionally venue) and transitions a draft gathering to 'live'. Records the transition in the gathering events log. Does NOT send invites yet — call lyra_send_invite afterwards to start the RSVP flow. Calendar event creation on the host's connected calendar is a separate action in the Lyra web UI; this tool just locks the data. Requires API key authentication.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         gathering_id: z.string().uuid().describe('Gathering ID'),
         finalised_slot_start_iso: z.string().describe('Final start time, ISO 8601'),
         finalised_slot_end_iso: z.string().describe('Final end time, ISO 8601 (must be after start)'),
@@ -372,9 +372,8 @@ export function registerConveneGatheringTools(server: McpServer) {
           finalised_slot_end: input.finalised_slot_end_iso,
           venue_id: input.venue_id ?? null,
           next_steps: [
-            'Use lyra_send_invite (P5) to start the RSVP flow.',
-            'Visit /dashboard/convene/gatherings/<id> to add this to your own calendar.',
-            'Use lyra_reschedule_gathering (P6) to change time or venue.',
+            'Use lyra_send_invite to start the RSVP flow.',
+            'Visit /dashboard/convene/gatherings/<id> in the Lyra web UI to add this to your own calendar.',
           ],
         });
       } catch (e) {

@@ -164,7 +164,7 @@ export function registerConveneAvailabilityTools(server: McpServer) {
       description:
         "Returns busy windows on the authenticated host's connected Google calendar within a time window, plus computed free intervals of at least the requested minimum duration. v1: host-only (no attendee fan-out yet — coming in a follow-up). Requires API key authentication and an active Google calendar connection.",
       inputSchema: {
-        api_key: z.string().describe('Lyra API key (starts with lyra_)'),
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         window_start_iso: z
           .string()
           .describe('Window start as ISO 8601 (e.g. "2026-06-01T08:00:00Z"). Past times allowed but pointless.'),
