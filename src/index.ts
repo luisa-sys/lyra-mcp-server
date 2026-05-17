@@ -814,6 +814,33 @@ if (TRANSPORT === 'stdio') {
     next();
   });
 
+  // ── Bearer-header → api_key backfill (KAN-240) ───────────────
+  // Standard MCP clients (claude.ai, Claude Desktop, Cursor) send the
+  // user-configured token as `Authorization: Bearer …`. Our tools still
+  // accept `api_key` as a per-call argument for back-compat. This
+  // middleware backfills the argument from the header so a client only
+  // needs to set the token once in its connector settings, not on every
+  // tool call. If both are present, the explicit per-call `api_key` wins
+  // (so an agent can target a different user without reconfiguring).
+  app.use('/mcp', (req, _res, next) => {
+    if (req.method !== 'POST') return next();
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader !== 'string') return next();
+    const m = authHeader.match(/^Bearer\s+(\S+)$/);
+    if (!m) return next();
+    const token = m[1];
+    if (!token.startsWith('lyra_')) return next();
+    // Only fill in if the call is a tools/call AND the per-call arg is
+    // missing or empty. Don't touch other JSON-RPC methods.
+    const body = req.body;
+    if (body?.method !== 'tools/call') return next();
+    const args = body?.params?.arguments;
+    if (!args || typeof args !== 'object') return next();
+    if (typeof args.api_key === 'string' && args.api_key.length > 0) return next();
+    args.api_key = token;
+    next();
+  });
+
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', server: 'lyra-mcp-server', version: '1.0.0' });
   });
