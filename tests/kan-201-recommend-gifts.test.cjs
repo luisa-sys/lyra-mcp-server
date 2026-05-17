@@ -180,11 +180,14 @@ describe('KAN-201: lyra_recommend_gifts — visibility guard alignment', () => {
 });
 
 describe('KAN-201: version bump for the tool change', () => {
-  test('package.json bumped to 1.1.0', () => {
-    expect(pkg.version).toBe('1.1.0');
+  // The shipped version is locked here so that every tool-touching ticket
+  // explicitly bumps both package.json and the McpServer constructor in
+  // lockstep. KAN-239 (evergreen fallback flag) bumped 1.1.0 → 1.2.0.
+  test('package.json bumped to 1.2.0', () => {
+    expect(pkg.version).toBe('1.2.0');
   });
 
   test('McpServer constructor version matches package.json', () => {
-    expect(indexSrc).toMatch(/name:\s*['"]lyra-mcp-server['"],\s*version:\s*['"]1\.1\.0['"]/);
+    expect(indexSrc).toMatch(/name:\s*['"]lyra-mcp-server['"],\s*version:\s*['"]1\.2\.0['"]/);
   });
 });
