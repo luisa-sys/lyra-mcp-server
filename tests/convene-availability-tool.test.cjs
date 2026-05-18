@@ -28,17 +28,19 @@ describe('Convene availability tool — structure (KAN-206 P2)', () => {
     expect(idx).toMatch(/registerConveneAvailabilityTools\(server\)/);
   });
 
-  test('registers the renamed lyra_get_my_calendar_busy_times', () => {
+  test('registers lyra_get_my_calendar_busy_times', () => {
     expect(src).toMatch(/server\.registerTool\(\s*['"]lyra_get_my_calendar_busy_times['"]/);
   });
 
-  test('keeps lyra_get_host_availability as a deprecated alias', () => {
-    expect(src).toMatch(/server\.registerTool\(\s*['"]lyra_get_host_availability['"]/);
-    expect(src).toMatch(/deprecated/i);
+  test('no longer registers the deprecated lyra_get_host_availability alias', () => {
+    // The alias was retained for one release after the KAN-244 rename to keep
+    // cached tools/list snapshots in claude.ai / Claude Code working. It's now
+    // removed — assert no live `registerTool('lyra_get_host_availability', …)`
+    // remains. References inside comments are fine.
+    expect(src).not.toMatch(/server\.registerTool\(\s*['"]lyra_get_host_availability['"]/);
   });
 
-  test('both names share the same handler (no logic duplication)', () => {
-    // Single AVAILABILITY_TOOL_DEF constant + single handler function
+  test('uses a single shared definition + handler (no logic duplication)', () => {
     expect(src).toMatch(/const AVAILABILITY_TOOL_DEF/);
     expect(src).toMatch(/async function handleAvailability/);
   });

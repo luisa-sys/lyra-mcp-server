@@ -8,8 +8,9 @@
  *                                confused LLM callers — they read "host"
  *                                as "host of a gathering" and inferred
  *                                the tool only worked in a gathering
- *                                context). Old name kept as an alias for
- *                                one release.
+ *                                context). The legacy alias was removed
+ *                                in a follow-up release once cached
+ *                                tools/list snapshots had refreshed.
  *
  * v1 scope: HOST ONLY. Multi-attendee fan-out (which requires reading other
  * Lyra users' calendars by chaining through their own oauth_connections)
@@ -163,11 +164,13 @@ function computeFreeIntervals(
 export { computeFreeIntervals }; // exported for unit testing
 
 /**
- * Shared definition: title, description, inputSchema, handler. Registered
- * under TWO names so existing integrations keep working:
+ * Tool definition: title, description, inputSchema, handler.
  *
- *   - lyra_get_my_calendar_busy_times   ← preferred, calendar-centric
- *   - lyra_get_host_availability        ← legacy alias, deprecated
+ * Previously this was registered under two names — `lyra_get_my_calendar_busy_times`
+ * (preferred) and `lyra_get_host_availability` (legacy alias). The alias was
+ * removed once cached tools/list snapshots in claude.ai / Claude Code had
+ * refreshed past the rename. If you're hitting a stale snapshot pointing at
+ * the old name, remove + re-add the connector to force a fresh tools/list.
  */
 const AVAILABILITY_TOOL_DEF = {
   title: 'Get my calendar busy times',
@@ -205,19 +208,10 @@ export function registerConveneAvailabilityTools(server: McpServer) {
     return handleAvailability(api_key, window_start_iso, window_end_iso, min_slot_minutes);
   };
 
-  // Preferred name (calendar-centric; KAN-244 rename).
+  // Single registration under the calendar-centric name. The legacy
+  // `lyra_get_host_availability` alias was removed once cached tools/list
+  // snapshots in claude.ai / Claude Code had refreshed past the rename.
   server.registerTool('lyra_get_my_calendar_busy_times', AVAILABILITY_TOOL_DEF, handler);
-
-  // Legacy alias — kept for one release so any cached tools/list snapshots
-  // in claude.ai / Claude Code don't break for existing users.
-  server.registerTool(
-    'lyra_get_host_availability',
-    {
-      ...AVAILABILITY_TOOL_DEF,
-      title: AVAILABILITY_TOOL_DEF.title + ' (deprecated — use lyra_get_my_calendar_busy_times)',
-    },
-    handler
-  );
 }
 
 async function handleAvailability(
