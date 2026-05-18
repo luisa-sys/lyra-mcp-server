@@ -28,18 +28,40 @@ describe('Convene availability tool — structure (KAN-206 P2)', () => {
     expect(idx).toMatch(/registerConveneAvailabilityTools\(server\)/);
   });
 
-  test('registers lyra_get_host_availability', () => {
-    expect(src).toMatch(/server\.registerTool\(\s*['"]lyra_get_host_availability['"]/);
+  test('registers the renamed lyra_get_my_calendar_busy_times', () => {
+    expect(src).toMatch(/server\.registerTool\(\s*['"]lyra_get_my_calendar_busy_times['"]/);
   });
 
-  test('tool requires api_key', () => {
-    expect(src).toMatch(/api_key:\s*z\.string/);
+  test('keeps lyra_get_host_availability as a deprecated alias', () => {
+    expect(src).toMatch(/server\.registerTool\(\s*['"]lyra_get_host_availability['"]/);
+    expect(src).toMatch(/deprecated/i);
+  });
+
+  test('both names share the same handler (no logic duplication)', () => {
+    // Single AVAILABILITY_TOOL_DEF constant + single handler function
+    expect(src).toMatch(/const AVAILABILITY_TOOL_DEF/);
+    expect(src).toMatch(/async function handleAvailability/);
+  });
+
+  test('tool accepts api_key as optional (KAN-240 Bearer auth)', () => {
+    expect(src).toMatch(/api_key:\s*z\.string\(\)\.optional\(\)/);
   });
 
   test('tool is read-only', () => {
-    const start = src.indexOf("'lyra_get_host_availability'");
-    const end = src.indexOf(');', start);
-    expect(src.slice(start, end)).toMatch(/readOnlyHint:\s*true/);
+    expect(src).toMatch(/readOnlyHint:\s*true/);
+  });
+
+  test('description leads with "YOUR" calendar (not "host\'s")', () => {
+    const descIdx = src.indexOf('description:');
+    expect(descIdx).toBeGreaterThan(-1);
+    const region = src.slice(descIdx, descIdx + 500);
+    expect(region).toMatch(/YOUR connected Google calendar/);
+    expect(region).not.toMatch(/host's connected Google calendar/);
+  });
+
+  test('error when no calendar connected guides the user to the connect tool', () => {
+    expect(src).toMatch(/lyra_connect_calendar/);
+    expect(src).toMatch(/grant consent on the Google screen/);
   });
 
   test('chains owner_user_id filter on oauth_connections read', () => {
