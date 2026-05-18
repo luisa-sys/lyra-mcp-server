@@ -58,6 +58,11 @@ const sourceFiles = [
   path.join(__dirname, '..', 'src', 'index.ts'),
   path.join(__dirname, '..', 'src', 'write-tools.ts'),
   path.join(__dirname, '..', 'src', 'convene-tools.ts'),
+  // KAN-235 — added so the multi-attendee fan-out reads (contacts +
+  // oauth_connections via .in()) are statically checked. The contacts read
+  // has the direct .eq('owner_user_id', userId); the second oauth_connections
+  // read uses .in() and is guarded by an `ownership-ok:` comment.
+  path.join(__dirname, '..', 'src', 'convene-availability-tool.ts'),
 ];
 
 function loadSource(file) {
