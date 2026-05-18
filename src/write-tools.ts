@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getSupabase } from './supabase.js';
 import { authenticateApiKey, getProfileForUser } from './auth.js';
 import { sanitiseText, sanitiseUrl } from './sanitise.js';
-import { checkModeration } from './moderation-policy.js';
+import { moderateAndAudit } from './moderation-audit.js';
 
 /**
  * Helper: authenticate and get profile ID from API key.
@@ -65,12 +65,15 @@ export function registerWriteTools(server: McpServer) {
 
       if (Object.keys(updates).length === 0) return errorResponse('No fields to update');
 
-      // KAN-242 — content moderation. Mirrors the web-app server-action policy
-      // (KAN-241). Runs AFTER sanitiseText so post-strip text is what's
-      // checked. All profile fields are 'public' — they render on the
-      // public profile via [slug]/page.tsx.
+      // KAN-242 + KAN-244 — content moderation + audit log. Mirrors the
+      // web-app server-action policy. All profile fields are 'public'.
       for (const [key, val] of Object.entries(updates)) {
-        const mod = checkModeration(val, 'public', `profiles.${key}`);
+        const mod = await moderateAndAudit({
+          text: val,
+          fieldType: 'public',
+          field: `profiles.${key}`,
+          profileId: auth.profileId,
+        });
         if (!mod.ok) return errorResponse(mod.error);
       }
 
@@ -102,13 +105,23 @@ export function registerWriteTools(server: McpServer) {
       let auth: { userId: string; profileId: string; slug: string | undefined };
       try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
-      // KAN-242 — content moderation on item text fields.
+      // KAN-242 + KAN-244 — content moderation + audit log on item text fields.
       const sanitisedTitle = sanitiseText(title, 200);
       const sanitisedDesc = description ? sanitiseText(description, 1000) : null;
-      const titleMod = checkModeration(sanitisedTitle, 'public', 'profile_items.title');
+      const titleMod = await moderateAndAudit({
+        text: sanitisedTitle,
+        fieldType: 'public',
+        field: 'profile_items.title',
+        profileId: auth.profileId,
+      });
       if (!titleMod.ok) return errorResponse(titleMod.error);
       if (sanitisedDesc) {
-        const descMod = checkModeration(sanitisedDesc, 'public', 'profile_items.description');
+        const descMod = await moderateAndAudit({
+          text: sanitisedDesc,
+          fieldType: 'public',
+          field: 'profile_items.description',
+          profileId: auth.profileId,
+        });
         if (!descMod.ok) return errorResponse(descMod.error);
       }
 
@@ -169,13 +182,23 @@ export function registerWriteTools(server: McpServer) {
       let auth: { userId: string; profileId: string; slug: string | undefined };
       try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
-      // KAN-242 — content moderation. Affiliations render on the public profile.
+      // KAN-242 + KAN-244 — moderation + audit. Affiliations render publicly.
       const sanitisedName = sanitiseText(school_name, 200);
       const sanitisedLoc = school_location ? sanitiseText(school_location, 200) : null;
-      const nameMod = checkModeration(sanitisedName, 'public', 'school_affiliations.school_name');
+      const nameMod = await moderateAndAudit({
+        text: sanitisedName,
+        fieldType: 'public',
+        field: 'school_affiliations.school_name',
+        profileId: auth.profileId,
+      });
       if (!nameMod.ok) return errorResponse(nameMod.error);
       if (sanitisedLoc) {
-        const locMod = checkModeration(sanitisedLoc, 'public', 'school_affiliations.school_location');
+        const locMod = await moderateAndAudit({
+          text: sanitisedLoc,
+          fieldType: 'public',
+          field: 'school_affiliations.school_location',
+          profileId: auth.profileId,
+        });
         if (!locMod.ok) return errorResponse(locMod.error);
       }
 
@@ -213,9 +236,15 @@ export function registerWriteTools(server: McpServer) {
       const cleanUrl = sanitiseUrl(url);
       if (!cleanUrl) return errorResponse('Invalid URL — must start with http:// or https://');
 
-      // KAN-242 — moderation on link title (URL itself is sanitiseUrl-restricted).
+      // KAN-242 + KAN-244 — moderation + audit on link title (URL already
+      // sanitiseUrl-restricted).
       const sanitisedLinkTitle = sanitiseText(title, 200);
-      const titleMod = checkModeration(sanitisedLinkTitle, 'public', 'external_links.title');
+      const titleMod = await moderateAndAudit({
+        text: sanitisedLinkTitle,
+        fieldType: 'public',
+        field: 'external_links.title',
+        profileId: auth.profileId,
+      });
       if (!titleMod.ok) return errorResponse(titleMod.error);
 
       const sb = getSupabase();
