@@ -47,10 +47,18 @@ function extractToolBlock(toolName) {
   return src.slice(openIdx, i);
 }
 
+// KAN-244: callers were migrated from the sync `checkModeration` to the
+// async `moderateAndAudit` wrapper, which calls `checkModeration`
+// internally and additionally writes a `content_moderation_flags`
+// audit row. These guards accept either entry point — the original
+// intent ("moderation is wired") is preserved while the audit-trail
+// migration is allowed.
+const MODERATION_FN = /(?:checkModeration|moderateAndAudit)/;
+
 describe('KAN-242 write-tools moderation wiring', () => {
-  test('imports checkModeration from the policy wrapper', () => {
+  test('imports moderation entry point from policy or audit wrapper', () => {
     expect(src).toMatch(
-      /import\s*\{\s*checkModeration\s*\}\s*from\s*['"]\.\/moderation-policy\.js['"]/,
+      /import\s*\{\s*(?:checkModeration|moderateAndAudit)\s*\}\s*from\s*['"]\.\/moderation-(?:policy|audit)\.js['"]/,
     );
   });
 
@@ -61,15 +69,13 @@ describe('KAN-242 write-tools moderation wiring', () => {
       expect(block).not.toBeNull();
     });
 
-    test('iterates sanitised updates through checkModeration', () => {
-      // The update tool accepts ≥5 free-text fields. We check ALL of
-      // them via a loop over `updates`, after sanitiseText.
+    test('iterates sanitised updates through moderation', () => {
       expect(block).toMatch(/for\s*\(\s*const\s*\[[^\]]+\]\s*of\s*Object\.entries\s*\(\s*updates\s*\)/);
-      expect(block).toMatch(/checkModeration\s*\(/);
+      expect(block).toMatch(MODERATION_FN);
     });
 
     test('moderation runs BEFORE the database update', () => {
-      const modIdx = block.indexOf('checkModeration');
+      const modIdx = block.search(MODERATION_FN);
       const updateIdx = block.indexOf(".from('profiles')");
       expect(modIdx).toBeGreaterThan(0);
       expect(updateIdx).toBeGreaterThan(modIdx);
@@ -88,14 +94,13 @@ describe('KAN-242 write-tools moderation wiring', () => {
     });
 
     test('moderates title (required field)', () => {
-      expect(block).toMatch(/checkModeration\s*\(\s*sanitisedTitle/);
+      // Old: checkModeration(sanitisedTitle, ...). New: moderateAndAudit({ text: sanitisedTitle, ... }).
+      expect(block).toMatch(/(?:checkModeration\s*\(\s*sanitisedTitle|moderateAndAudit\s*\(\s*\{[\s\S]*?text:\s*sanitisedTitle)/);
     });
 
     test('moderates description when present (optional field)', () => {
-      // Optional fields must be guarded inside an `if (sanitisedDesc)`
-      // — otherwise null descriptions throw. The guard's body must
-      // contain the checkModeration call.
-      expect(block).toMatch(/if\s*\(\s*sanitisedDesc\s*\)\s*\{[\s\S]*?checkModeration\s*\(\s*sanitisedDesc/);
+      // Guarded by `if (sanitisedDesc)`; either entry point allowed.
+      expect(block).toMatch(/if\s*\(\s*sanitisedDesc\s*\)\s*\{[\s\S]*?(?:checkModeration\s*\(\s*sanitisedDesc|moderateAndAudit\s*\(\s*\{[\s\S]*?text:\s*sanitisedDesc)/);
     });
 
     test('rejections bail with errorResponse before the insert', () => {
@@ -115,11 +120,11 @@ describe('KAN-242 write-tools moderation wiring', () => {
     });
 
     test('moderates school_name (required)', () => {
-      expect(block).toMatch(/checkModeration\s*\(\s*sanitisedName/);
+      expect(block).toMatch(/(?:checkModeration\s*\(\s*sanitisedName|moderateAndAudit\s*\(\s*\{[\s\S]*?text:\s*sanitisedName)/);
     });
 
     test('moderates school_location when present (optional)', () => {
-      expect(block).toMatch(/if\s*\(\s*sanitisedLoc\s*\)\s*\{[\s\S]*?checkModeration\s*\(\s*sanitisedLoc/);
+      expect(block).toMatch(/if\s*\(\s*sanitisedLoc\s*\)\s*\{[\s\S]*?(?:checkModeration\s*\(\s*sanitisedLoc|moderateAndAudit\s*\(\s*\{[\s\S]*?text:\s*sanitisedLoc)/);
     });
 
     test('rejections bail before the insert', () => {
@@ -138,10 +143,7 @@ describe('KAN-242 write-tools moderation wiring', () => {
     });
 
     test('moderates link title (user-controlled free text)', () => {
-      // The URL itself is restricted by sanitiseUrl. Only the title
-      // needs moderation — but it MUST be moderated, otherwise an
-      // attacker can put profanity in a publicly-rendered link label.
-      expect(block).toMatch(/checkModeration\s*\(\s*sanitisedLinkTitle/);
+      expect(block).toMatch(/(?:checkModeration\s*\(\s*sanitisedLinkTitle|moderateAndAudit\s*\(\s*\{[\s\S]*?text:\s*sanitisedLinkTitle)/);
     });
 
     test('rejections bail before the insert', () => {
@@ -153,14 +155,16 @@ describe('KAN-242 write-tools moderation wiring', () => {
   });
 
   describe('public-field classification', () => {
-    test('every checkModeration call in write-tools passes "public" fieldType', () => {
+    test('every moderation call in write-tools passes "public" fieldType', () => {
       // The profile-content write tools all populate fields rendered on
-      // the public profile page ([slug]/page.tsx). If a future caller
-      // passes 'private' here, PII like phone numbers would silently
-      // slip into a public surface — guard against that.
-      const calls = src.match(/checkModeration\s*\([^)]*\)/g) || [];
-      expect(calls.length).toBeGreaterThanOrEqual(5);
-      for (const call of calls) {
+      // the public profile page. Allow either entry-point form.
+      // - Old: `checkModeration(text, 'public', '...')` — 3 positional args
+      // - New: `moderateAndAudit({ text, fieldType: 'public', field, profileId })` — object arg
+      // Both must mention 'public' for these surfaces.
+      const oldCalls = src.match(/checkModeration\s*\([^)]*\)/g) || [];
+      const newCalls = src.match(/moderateAndAudit\s*\(\s*\{[\s\S]*?\}\s*\)/g) || [];
+      expect(oldCalls.length + newCalls.length).toBeGreaterThanOrEqual(5);
+      for (const call of [...oldCalls, ...newCalls]) {
         expect(call).toMatch(/['"]public['"]/);
       }
     });
