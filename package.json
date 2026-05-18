@@ -24,7 +24,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.5.1",
+    "express-rate-limit": "^8.5.2",
     "jose": "^5.10.0",
     "zod": "^4.4.3"
   },
