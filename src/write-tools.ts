@@ -169,22 +169,27 @@ export function registerWriteTools(server: McpServer) {
     'lyra_add_school',
     {
       title: 'Add School Affiliation',
-      description: 'Add a school connection to a Lyra profile. Requires API key.',
+      description: 'Add a school connection to a Lyra profile. Affiliations are HIDDEN from the public profile and search by default — pass show_on_profile=true to make this one visible. Requires API key.',
       inputSchema: {
         api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
         school_name: z.string().describe('School name'),
         school_location: z.string().optional().describe('Location'),
         relationship: z.enum(['parent', 'student', 'alumni', 'staff', 'other']).optional().describe('Relationship to school'),
+        description: z.string().optional().describe('Optional free-text note about this affiliation (shown only when show_on_profile is true)'),
+        show_on_profile: z.boolean().optional().describe('Whether this affiliation is visible on the public profile and in search. Defaults to false (hidden).'),
       },
       annotations: { destructiveHint: false },
     },
-    async ({ api_key, school_name, school_location, relationship }) => {
+    async ({ api_key, school_name, school_location, relationship, description, show_on_profile }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
       try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
 
-      // KAN-242 + KAN-244 — moderation + audit. Affiliations render publicly.
+      // KAN-242 + KAN-244 — moderation + audit. Affiliations render publicly
+      // ONLY when show_on_profile is true, but we moderate regardless so
+      // unsafe text never lands in the DB even on a hidden row.
       const sanitisedName = sanitiseText(school_name, 200);
       const sanitisedLoc = school_location ? sanitiseText(school_location, 200) : null;
+      const sanitisedDesc = description ? sanitiseText(description, 1000) : null;
       const nameMod = await moderateAndAudit({
         text: sanitisedName,
         fieldType: 'public',
@@ -201,6 +206,15 @@ export function registerWriteTools(server: McpServer) {
         });
         if (!locMod.ok) return errorResponse(locMod.error);
       }
+      if (sanitisedDesc) {
+        const descMod = await moderateAndAudit({
+          text: sanitisedDesc,
+          fieldType: 'public',
+          field: 'school_affiliations.description',
+          profileId: auth.profileId,
+        });
+        if (!descMod.ok) return errorResponse(descMod.error);
+      }
 
       const sb = getSupabase();
       const { data, error } = await sb.from('school_affiliations').insert({
@@ -208,10 +222,135 @@ export function registerWriteTools(server: McpServer) {
         school_name: sanitisedName,
         school_location: sanitisedLoc,
         relationship: relationship || 'parent',
+        description: sanitisedDesc,
+        // Hidden by default — only show when the caller explicitly opts in.
+        show_on_profile: show_on_profile === true,
       }).select('id').single();
 
       if (error) return errorResponse(error.message);
-      return okResponse({ success: true, id: data.id, school_name });
+      return okResponse({ success: true, id: data.id, school_name, show_on_profile: show_on_profile === true });
+    }
+  );
+
+  // ── Tool: Update School Affiliation ─────────────────────────
+  // June-2026 redesign: affiliations are hidden by default. This tool
+  // lets a user reveal/hide an existing affiliation and edit its
+  // description/relationship without removing and re-adding it.
+  server.registerTool(
+    'lyra_update_school',
+    {
+      title: 'Update School Affiliation',
+      description:
+        'Update an existing school affiliation: toggle whether it is shown on the public profile and in search (show_on_profile), edit its description, or change the relationship. Requires API key.',
+      inputSchema: {
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
+        school_id: z.string().describe('School affiliation UUID to update'),
+        relationship: z.enum(['parent', 'student', 'alumni', 'staff', 'other']).optional().describe('Relationship to school'),
+        description: z.string().optional().describe('Free-text note about this affiliation (shown only when show_on_profile is true). Pass an empty string to clear it.'),
+        show_on_profile: z.boolean().optional().describe('Whether this affiliation is visible on the public profile and in search.'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ api_key, school_id, relationship, description, show_on_profile }) => {
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
+
+      const updates: Record<string, unknown> = {};
+      if (relationship !== undefined) updates.relationship = relationship;
+      if (show_on_profile !== undefined) updates.show_on_profile = show_on_profile;
+      if (description !== undefined) {
+        const sanitisedDesc = sanitiseText(description, 1000);
+        if (sanitisedDesc.length > 0) {
+          const descMod = await moderateAndAudit({
+            text: sanitisedDesc,
+            fieldType: 'public',
+            field: 'school_affiliations.description',
+            profileId: auth.profileId,
+          });
+          if (!descMod.ok) return errorResponse(descMod.error);
+        }
+        updates.description = sanitisedDesc.length > 0 ? sanitisedDesc : null;
+      }
+
+      if (Object.keys(updates).length === 0) return errorResponse('No fields to update');
+
+      const sb = getSupabase();
+      // Ownership-scoped: only the caller's own affiliation rows.
+      const { data, error } = await sb.from('school_affiliations')
+        .update(updates)
+        .eq('id', school_id)
+        .eq('profile_id', auth.profileId)
+        .select('id')
+        .maybeSingle();
+      if (error) return errorResponse(error.message);
+      if (!data) return errorResponse('School affiliation not found for this profile');
+      return okResponse({ success: true, id: data.id, updated: Object.keys(updates) });
+    }
+  );
+
+  // ── Tool: Update Manual of Me ───────────────────────────────
+  // June-2026 redesign: profile_manual_of_me gained good_to_know and
+  // boundaries alongside the original four free-text fields. This is the
+  // first MCP write path for this 1-1 table — upsert on profile_id.
+  server.registerTool(
+    'lyra_update_manual_of_me',
+    {
+      title: 'Update Manual of Me',
+      description:
+        "Update the user's \"Manual of Me\" — their working-style notes. Fields: communication_style (\"How I find communication easier\"), working_preferences (\"If you ever come to my house\"), energises_me (\"What gives me energy\"), drains_me (\"What drains me\"), good_to_know (\"Good to know about me\"), boundaries (\"My boundaries\"). Pass only the fields you want to set; pass an empty string to clear a field. Requires API key.",
+      inputSchema: {
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
+        communication_style: z.string().optional().describe('How I find communication easier'),
+        working_preferences: z.string().optional().describe('If you ever come to my house'),
+        energises_me: z.string().optional().describe('What gives me energy'),
+        drains_me: z.string().optional().describe('What drains me'),
+        good_to_know: z.string().optional().describe('Good to know about me'),
+        boundaries: z.string().optional().describe('My boundaries'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ api_key, ...fields }) => {
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
+
+      const FIELD_KEYS = [
+        'communication_style',
+        'working_preferences',
+        'energises_me',
+        'drains_me',
+        'good_to_know',
+        'boundaries',
+      ] as const;
+
+      // Sanitise + (when non-empty) moderate every provided field. Empty
+      // string clears the field. Manual-of-Me renders on the public
+      // profile, so fieldType is 'public' — mirrors the other write tools.
+      const updates: Record<string, string | null> = {};
+      for (const key of FIELD_KEYS) {
+        const raw = (fields as Record<string, string | undefined>)[key];
+        if (raw === undefined) continue;
+        const clean = sanitiseText(raw, 2000);
+        if (clean.length > 0) {
+          const mod = await moderateAndAudit({
+            text: clean,
+            fieldType: 'public',
+            field: `profile_manual_of_me.${key}`,
+            profileId: auth.profileId,
+          });
+          if (!mod.ok) return errorResponse(mod.error);
+        }
+        updates[key] = clean.length > 0 ? clean : null;
+      }
+
+      if (Object.keys(updates).length === 0) return errorResponse('No fields to update');
+
+      const sb = getSupabase();
+      // 1-1 table keyed by profile_id — upsert so first-time callers create
+      // the row and subsequent callers update it.
+      const { error } = await sb.from('profile_manual_of_me')
+        .upsert({ profile_id: auth.profileId, ...updates }, { onConflict: 'profile_id' });
+      if (error) return errorResponse(error.message);
+      return okResponse({ success: true, updated: Object.keys(updates), slug: auth.slug });
     }
   );
 
@@ -361,8 +500,9 @@ export function registerWriteTools(server: McpServer) {
           { order: 6, tool: 'lyra_add_item', ask: "What are some good gift ideas for you? Things you'd actually want?" },
           { order: 7, tool: 'lyra_add_item', ask: "Any gifts people should definitely NOT get you?" },
           { order: 8, tool: 'lyra_add_item', ask: "Any boundaries or things that are helpful for people to know?" },
-          { order: 9, tool: 'lyra_add_link', ask: "Do you have any wishlists or favourite shops you'd like to link?" },
-          { order: 10, tool: 'lyra_publish_profile', ask: "Your profile is ready! Would you like to publish it so people can find you?" },
+          { order: 9, tool: 'lyra_update_manual_of_me', ask: "Tell me about your Manual of Me: how you find communication easier, what gives you energy, what drains you, what's good to know about you, and your boundaries." },
+          { order: 10, tool: 'lyra_add_link', ask: "Do you have any wishlists or favourite shops you'd like to link?" },
+          { order: 11, tool: 'lyra_publish_profile', ask: "Your profile is ready! Would you like to publish it so people can find you?" },
         ],
         tips: [
           "Be conversational — don't ask all questions at once",
