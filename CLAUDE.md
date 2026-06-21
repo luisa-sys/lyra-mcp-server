@@ -29,9 +29,12 @@ When in doubt, prefer a worktree. Disk is cheap; mixed-feature PRs that ship con
 
 ## Jira Ticket Standard
 
-All work must be tracked in Jira. KAN project for design/deployment, BUGS project for bug tracking.
+All work must be tracked in Jira. **KAN** for design/deployment, **BUGS** for bug tracking, and **SEC** (Security & Risk — team-managed) for all security and risk findings: vulnerabilities, data-protection/compliance, ops-resilience and governance. Route any security or risk-audit work to **SEC**, not KAN/BUGS.
 
-Every KAN Task/Story description MUST include all six sections:
+- The second-line **Lyra Risk Register** (Confluence space TWC) is the index of findings; the Jira epic **SEC-1** ("2026-06 Second-line Risk & Security Audit") is their tracking home.
+- **SEC transition IDs** (for `transitionJiraIssue`): `11` = To Do, `21` = In Progress, `31` = Done. (cf. KAN `21`/`41`, BUGS `21`/`31`/`41`.)
+
+Every KAN/SEC Task/Story description MUST include all six sections:
 
 1. **What & Why**
 2. **Implementation steps**
