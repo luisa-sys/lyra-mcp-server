@@ -8,6 +8,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { getSupabase } from './supabase.js';
+import { sanitiseSearchTerm } from './sanitise.js';
 import { registerWriteTools } from './write-tools.js';
 import { registerConveneTools } from './convene-tools.js';
 import { registerConveneCalendarTools } from './convene-calendar-tools.js';
@@ -87,8 +88,11 @@ server.registerTool(
     // must enforce this filter — same threat model as KAN-143 visibility.
     let q = sb.from('profiles').select('slug, display_name, headline, city, country').eq('is_published', true).eq('is_suspended', false);
 
-    if (query) {
-      q = q.or(`display_name.ilike.%${query}%,headline.ilike.%${query}%,bio_short.ilike.%${query}%,city.ilike.%${query}%`);
+    // SEC-09 (TDD 2026-06-21): strip PostgREST filter metacharacters before
+    // interpolating the term into .or() — the service-role client bypasses RLS.
+    const safeQuery = sanitiseSearchTerm(query || '');
+    if (safeQuery) {
+      q = q.or(`display_name.ilike.%${safeQuery}%,headline.ilike.%${safeQuery}%,bio_short.ilike.%${safeQuery}%,city.ilike.%${safeQuery}%`);
     }
 
     const { data: profiles, error } = await q.limit(limit || 10);
