@@ -1,0 +1,11 @@
+# Code owners for this repository.
+#
+# A review from a code owner is automatically requested on every pull request.
+# Once branch protection requires code-owner review (SEC-3 / GOV-01), this provides a
+# real "second pair of eyes" gate before changes reach a protected branch.
+#
+# TODO (SEC-3): add Ben's GitHub handle alongside @luisa-sys so the author and the
+# required reviewer can differ — true segregation of duties. With a single owner,
+# CODEOWNERS documents ownership but cannot by itself enforce an independent reviewer.
+
+* @luisa-sys
