@@ -1,4 +1,6 @@
 import 'dotenv/config';
+// SEC-4: initialise Sentry error tracking ASAP (inert unless SENTRY_DSN is set).
+import { Sentry, sentryEnabled } from './sentry.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -1109,6 +1111,12 @@ if (TRANSPORT === 'stdio') {
   app.delete('/mcp', async (_req, res) => {
     res.writeHead(405).end(JSON.stringify({ error: 'Method not allowed. Stateless server — no sessions to delete.' }));
   });
+
+  // SEC-4: capture unhandled errors from the Express request pipeline in Sentry.
+  // (uncaughtException / unhandledRejection are auto-captured by Sentry.init.)
+  if (sentryEnabled) {
+    Sentry.setupExpressErrorHandler(app);
+  }
 
   const PORT = parseInt(process.env.PORT || '3001', 10);
   app.listen(PORT, () => {
