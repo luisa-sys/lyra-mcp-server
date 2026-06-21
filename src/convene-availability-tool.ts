@@ -507,12 +507,18 @@ async function handleSharedAvailability(
     if (linkedProfileIds.length > 0) {
       const { data: profileRows, error: profErr } = await sb
         .from('profiles')
-        .select('id, user_id')
+        .select('id, user_id, share_availability_with_contacts')
         .in('id', linkedProfileIds)
         .eq('is_suspended', false);
       if (profErr) return errorResponse(profErr.message);
       for (const p of profileRows ?? []) {
-        profileToUser.set(p.id as string, p.user_id as string);
+        // SEC-18: only fan out a linked profile's busy-times when its owner has
+        // explicitly opted in to sharing availability with contacts. Non-
+        // consenting (or legacy NULL) profiles fall through to
+        // requires_manual_confirm — no cross-user busy-time disclosure.
+        if (p.share_availability_with_contacts === true) {
+          profileToUser.set(p.id as string, p.user_id as string);
+        }
       }
     }
 
