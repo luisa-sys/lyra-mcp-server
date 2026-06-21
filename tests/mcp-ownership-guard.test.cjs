@@ -63,6 +63,9 @@ const sourceFiles = [
   // has the direct .eq('owner_user_id', userId); the second oauth_connections
   // read uses .in() and is guarded by an `ownership-ok:` comment.
   path.join(__dirname, '..', 'src', 'convene-availability-tool.ts'),
+  // KAN-307 — contact/tribe write tools touch contacts, tribes, tribe_members,
+  // contact_methods. Statically enforce their ownership scoping too.
+  path.join(__dirname, '..', 'src', 'convene-contact-tools.ts'),
 ];
 
 function loadSource(file) {

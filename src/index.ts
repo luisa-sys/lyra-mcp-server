@@ -19,6 +19,7 @@ import { registerConveneSuggestVenuesTool } from './convene-suggest-venues-tool.
 import { registerConveneInviteTools } from './convene-invite-tools.js';
 import { registerConveneDrainTool } from './convene-drain-tool.js';
 import { registerConveneLifecycleTools } from './convene-lifecycle-tools.js';
+import { registerConveneContactTools } from './convene-contact-tools.js';
 import { validateOAuthAccessToken, looksLikeJwt } from './oauth-jwt.js';
 import { requestContext, OAUTH_AUTHED_SENTINEL } from './request-context.js';
 import { wwwAuthenticateBearer, type AuthenticateHeaderOpts } from './oauth-www-authenticate.js';
@@ -808,6 +809,7 @@ registerConveneSuggestVenuesTool(server);
 registerConveneInviteTools(server);
 registerConveneDrainTool(server);
 registerConveneLifecycleTools(server);
+registerConveneContactTools(server);
 
 // ── Transport Setup ─────────────────────────────────────────────
 
