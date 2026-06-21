@@ -28,14 +28,12 @@ function isEnabled(): boolean {
 }
 
 function extractIp(req: Request): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) {
-    return fwd.split(',')[0]?.trim() || 'unknown';
-  }
-  if (Array.isArray(fwd) && fwd.length > 0) {
-    return fwd[0]?.split(',')[0]?.trim() || 'unknown';
-  }
-  return req.socket?.remoteAddress || 'unknown';
+  // SEC-17 (F-16): with `app.set('trust proxy', 1)` in index.ts, Express resolves
+  // req.ip from the trusted Railway proxy hop only, so a client-supplied
+  // X-Forwarded-For can no longer spoof the recorded IP (which feeds the
+  // `mcp_per_ip_recent_count` abuse view / KAN-233 alerting). Never parse raw
+  // X-Forwarded-For here.
+  return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
 function extractApiKeyPrefix(req: Request): string | null {

@@ -823,6 +823,12 @@ if (TRANSPORT === 'stdio') {
 } else {
   // HTTP transport for remote access (Railway, etc.)
   const app = express();
+  // SEC-17 (F-08): trust the single Railway proxy hop so Express derives req.ip
+  // from the real client, not the proxy. Without this, express-rate-limit keys
+  // every request on the one shared proxy IP (a single global bucket) and the
+  // audit log records a useless, client-spoofable IP. `1` (not `true`) trusts
+  // exactly one hop — the value express-rate-limit's validator treats as safe.
+  app.set('trust proxy', 1);
   app.use(express.json());
 
   // ── CORS ─────────────────────────────────────────────────────
@@ -867,7 +873,7 @@ if (TRANSPORT === 'stdio') {
 
   // ── Request Logging (KAN-118) ────────────────────────────────
   app.use((req, _res, next) => {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    const ip = req.ip || req.socket.remoteAddress || 'unknown'; // SEC-17 (F-16): trusted req.ip, not spoofable raw X-Forwarded-For
     const method = req.method;
     const path = req.path;
     const timestamp = new Date().toISOString();
