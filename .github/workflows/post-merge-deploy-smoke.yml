@@ -37,6 +37,9 @@ defaults:
   run:
     shell: bash
 
+permissions:
+  contents: read
+
 jobs:
   probe:
     name: Probe mcp.checklyra.com for fresh deploy
