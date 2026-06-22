@@ -46,6 +46,17 @@ function errorResponse(msg: string) {
   return { content: [{ type: 'text' as const, text: JSON.stringify({ error: msg }) }] };
 }
 
+/**
+ * SEC-17 / F-15: never surface a raw DB/PostgREST error to the MCP client — the
+ * message can leak column names, constraint names, SQL fragments and internal
+ * schema. Log the real error server-side; return a generic, safe message.
+ */
+function clientError(error: unknown, context: string) {
+  console.error(`[mcp][${context}] database error:`, error);
+  return errorResponse('The request could not be completed. Please check your input and try again.');
+}
+
+
 function okResponse(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
@@ -83,7 +94,7 @@ export function registerConveneTools(server: McpServer) {
           .eq('owner_user_id', userId)
           .is('deleted_at', null)
           .order('created_at', { ascending: false });
-        if (error) return errorResponse(error.message);
+        if (error) return clientError(error, 'convene-tools');
         return okResponse({ _data_notice: DATA_NOTICE, tribes: data ?? [] });
       } catch (e) {
         return errorResponse(e instanceof Error ? e.message : 'unknown error');
@@ -122,7 +133,7 @@ export function registerConveneTools(server: McpServer) {
           q = q.ilike('display_name', `%${search}%`);
         }
         const { data, error } = await q;
-        if (error) return errorResponse(error.message);
+        if (error) return clientError(error, 'convene-tools');
         return okResponse({
           _data_notice: DATA_NOTICE,
           _privacy_notice:
@@ -179,7 +190,7 @@ export function registerConveneTools(server: McpServer) {
           q = q.eq('status', status);
         }
         const { data, error } = await q;
-        if (error) return errorResponse(error.message);
+        if (error) return clientError(error, 'convene-tools');
         return okResponse({ _data_notice: DATA_NOTICE, count: data?.length ?? 0, gatherings: data ?? [] });
       } catch (e) {
         return errorResponse(e instanceof Error ? e.message : 'unknown error');

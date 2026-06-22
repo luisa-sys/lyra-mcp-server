@@ -8,6 +8,7 @@ import express from 'express';
 import { toolCallLogMiddleware } from './tool-call-log.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import { getSupabase } from './supabase.js';
 import { sanitiseSearchTerm } from './sanitise.js';
@@ -864,12 +865,21 @@ if (TRANSPORT === 'stdio') {
     message: { error: 'Too many requests. Please try again later.' },
   }));
 
-  // MCP endpoint: stricter 60 requests per minute per IP
+  // MCP endpoint: stricter 60 requests per minute, keyed per API key (SEC-17/F-08)
   app.use('/mcp', rateLimit({
     windowMs: 60_000,
     max: 60,
     standardHeaders: true,
     legacyHeaders: false,
+    // SEC-17 (F-08): key the MCP limiter on the caller's API key when present, so
+    // a shared IP (NAT/proxy) isn't collectively throttled and a single key can't
+    // spread its load across many source IPs to evade the 60/min cap. Public
+    // (no-key) read calls fall back to the IPv6-safe trusted req.ip.
+    keyGenerator: (req) => {
+      const apiKey =
+        req.header('x-api-key') || req.header('authorization')?.replace(/^Bearer\s+/i, '');
+      return apiKey ? `k:${apiKey}` : ipKeyGenerator(req.ip || '0.0.0.0');
+    },
     message: { error: 'MCP rate limit exceeded. Max 60 requests per minute.' },
   }));
 

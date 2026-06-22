@@ -28,6 +28,17 @@ function errorResponse(msg: string) {
   return { content: [{ type: 'text' as const, text: JSON.stringify({ error: msg }) }] };
 }
 
+/**
+ * SEC-17 / F-15: never surface a raw DB/PostgREST error to the MCP client — the
+ * message can leak column names, constraint names, SQL fragments and internal
+ * schema. Log the real error server-side; return a generic, safe message.
+ */
+function clientError(error: unknown, context: string) {
+  console.error(`[mcp][${context}] database error:`, error);
+  return errorResponse('The request could not be completed. Please check your input and try again.');
+}
+
+
 function okResponse(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
@@ -79,7 +90,7 @@ export function registerWriteTools(server: McpServer) {
 
       const sb = getSupabase();
       const { error } = await sb.from('profiles').update(updates).eq('id', auth.profileId);
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
 
       return okResponse({ success: true, updated: Object.keys(updates), slug: auth.slug });
     }
@@ -133,7 +144,7 @@ export function registerWriteTools(server: McpServer) {
         description: sanitisedDesc,
       }).select('id').single();
 
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, id: data.id, category, title });
     }
   );
@@ -159,7 +170,7 @@ export function registerWriteTools(server: McpServer) {
         .delete()
         .eq('id', item_id)
         .eq('profile_id', auth.profileId);
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, removed: item_id });
     }
   );
@@ -227,7 +238,7 @@ export function registerWriteTools(server: McpServer) {
         show_on_profile: show_on_profile === true,
       }).select('id').single();
 
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, id: data.id, school_name, show_on_profile: show_on_profile === true });
     }
   );
@@ -282,7 +293,7 @@ export function registerWriteTools(server: McpServer) {
         .eq('profile_id', auth.profileId)
         .select('id')
         .maybeSingle();
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       if (!data) return errorResponse('School affiliation not found for this profile');
       return okResponse({ success: true, id: data.id, updated: Object.keys(updates) });
     }
@@ -349,7 +360,7 @@ export function registerWriteTools(server: McpServer) {
       // the row and subsequent callers update it.
       const { error } = await sb.from('profile_manual_of_me')
         .upsert({ profile_id: auth.profileId, ...updates }, { onConflict: 'profile_id' });
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, updated: Object.keys(updates), slug: auth.slug });
     }
   );
@@ -394,7 +405,7 @@ export function registerWriteTools(server: McpServer) {
         link_type: link_type || 'general',
       }).select('id').single();
 
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, id: data.id, title, url: cleanUrl });
     }
   );
@@ -420,7 +431,7 @@ export function registerWriteTools(server: McpServer) {
         .update({ is_published: published })
         .eq('id', auth.profileId);
 
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, published, slug: auth.slug });
     }
   );
@@ -444,7 +455,7 @@ export function registerWriteTools(server: McpServer) {
       const sb = getSupabase();
       const { error } = await sb.from('school_affiliations')
         .delete().eq('id', school_id).eq('profile_id', auth.profileId);
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, removed: school_id });
     }
   );
@@ -468,7 +479,7 @@ export function registerWriteTools(server: McpServer) {
       const sb = getSupabase();
       const { error } = await sb.from('external_links')
         .delete().eq('id', link_id).eq('profile_id', auth.profileId);
-      if (error) return errorResponse(error.message);
+      if (error) return clientError(error, 'write-tools');
       return okResponse({ success: true, removed: link_id });
     }
   );
