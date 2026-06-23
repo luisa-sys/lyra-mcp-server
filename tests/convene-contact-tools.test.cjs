@@ -37,10 +37,11 @@ describe('Convene contacts & tribes write tools — structure (KAN-307)', () => 
       expect(guard).toMatch(/convene-contact-tools\.ts/);
     });
 
-    test('imports moderation audit + supabase + auth helpers', () => {
+    test('imports moderation audit + supabase + the shared convene auth gate', () => {
       expect(src).toMatch(/from '\.\/moderation-audit\.js'/);
       expect(src).toMatch(/from '\.\/supabase\.js'/);
-      expect(src).toMatch(/from '\.\/auth\.js'/);
+      // KAN-317: auth now routes through the shared convene-auth gate (mcp + convene).
+      expect(src).toMatch(/from '\.\/convene-auth\.js'/);
     });
   });
 

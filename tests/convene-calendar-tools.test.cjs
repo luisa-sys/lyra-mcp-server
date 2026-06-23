@@ -103,14 +103,17 @@ describe('Convene calendar tools — structure (KAN-206)', () => {
     });
   });
 
-  describe('auth pattern', () => {
-    test('uses authenticateApiKey from auth.ts', () => {
-      expect(src).toMatch(/import.*authenticateApiKey.*from\s*['"]\.\/auth\.js['"]/);
+  describe('auth pattern (KAN-317: shared entitlement gate)', () => {
+    // authedUser consolidated into convene-auth.ts (+ mcp/convene entitlement
+    // enforcement). Rejection behaviour preserved, asserted in its shared home.
+    const authSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'convene-auth.ts'), 'utf8');
+    test('routes auth through the shared convene gate', () => {
+      expect(src).toMatch(/conveneAuthedUser/);
     });
-
-    test('helpers reject missing or invalid key', () => {
-      expect(src).toMatch(/API key required/);
-      expect(src).toMatch(/Authentication failed/);
+    test('shared gate rejects missing/invalid key + enforces entitlements', () => {
+      expect(authSrc).toMatch(/API key required/);
+      expect(authSrc).toMatch(/Authentication failed/);
+      expect(authSrc).toMatch(/requireFeatures/);
     });
   });
 
