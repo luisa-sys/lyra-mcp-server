@@ -87,9 +87,11 @@ describe('oauth-jwt.ts source structure (KAN-88 P5)', () => {
     expect(src).toMatch(/export function looksLikeJwt/);
   });
 
-  test('reads OAUTH_JWT_SIGNING_SECRET from env + requires ≥32 chars', () => {
+  test('reads OAUTH_JWT_SIGNING_SECRET from env + enforces ≥32 chars (null-safe, no throw — SEC-33)', () => {
     expect(src).toMatch(/OAUTH_JWT_SIGNING_SECRET/);
-    expect(src).toMatch(/32 chars/);
+    // SEC-33: the ≥32 gate is preserved but now returns null instead of throwing,
+    // so a JWKS-only (RS256) deploy with no shared secret can't mask a valid token.
+    expect(src).toMatch(/length < 32/);
   });
 
   test('reads issuer from LYRA_SITE_URL', () => {
