@@ -79,17 +79,22 @@ describe('Convene read tools — structure (KAN-205)', () => {
     });
   });
 
-  describe('auth pattern', () => {
-    test('uses authenticateApiKey from auth.ts', () => {
-      expect(src).toMatch(/import.*authenticateApiKey.*from\s*['"]\.\/auth\.js['"]/);
+  describe('auth pattern (KAN-317: shared entitlement gate)', () => {
+    // The per-file authedUser wrappers were consolidated into convene-auth.ts,
+    // which now also enforces the mcp + convene entitlements. The rejection
+    // behaviour is preserved — asserted here in its new (shared) home.
+    const authSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'convene-auth.ts'), 'utf8');
+    test('routes auth through the shared convene gate', () => {
+      expect(src).toMatch(/conveneAuthedUser/);
     });
-
-    test('authedUser helper rejects missing key', () => {
-      expect(src).toMatch(/API key required/);
+    test('shared gate rejects missing key', () => {
+      expect(authSrc).toMatch(/API key required/);
     });
-
-    test('authedUser helper rejects invalid key', () => {
-      expect(src).toMatch(/Authentication failed/);
+    test('shared gate rejects invalid key', () => {
+      expect(authSrc).toMatch(/Authentication failed/);
+    });
+    test('shared gate enforces mcp + convene entitlements', () => {
+      expect(authSrc).toMatch(/requireFeatures/);
     });
   });
 
