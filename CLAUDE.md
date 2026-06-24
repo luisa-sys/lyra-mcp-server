@@ -78,6 +78,23 @@ Reverse for rollback: web first (Vercel revert), then MCP (Railway redeploy of p
 - Production MCP server points to production Supabase; dev MCP server points to dev Supabase (see Gotcha #6)
 - Current test floor: **217 tests** (13 suites). Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
 
+### `ACCESS_MODEL_V2` — schema-gated rollout (KAN-328) — set per-service, NOT in code
+
+Both Railway services deploy the SAME `main` code, so an environment flag — not the
+branch — decides whether the new access model is active. `ACCESS_MODEL_V2=true` makes
+gated tools require the caller to be `user_status='live'` AND not suspended, and switches
+per-feature defaults to the `access_tier` tier model (test features on for `beta`, off for
+`prod`; GA features always on). Default (unset/false) preserves the legacy KAN-317
+behaviour and reads ONLY `id, age_status` from `profiles`.
+
+**Critical ordering — never turn the flag on before the columns exist.** The flag makes the
+server read `profiles.user_status` / `access_tier` / `is_suspended`. A `profiles` table
+without those columns will error every gated tool call. The KAN-327 migration adds them.
+
+1. Dev Supabase already has the columns → set `ACCESS_MODEL_V2=true` on **lyra-mcp-dev**, redeploy, verify.
+2. Production Supabase gets the columns only when the web team promotes the KAN-327 migration to prod. Set `ACCESS_MODEL_V2=true` on **lyra-mcp-server** ONLY AFTER that. Until then leave it off (prod keeps current behaviour, safely).
+3. The GUI's `registry.ts` must adopt the same tier model for true parity (parent epic KAN-326). The flag is a transition mechanism — removable once prod is migrated and the legacy columns are dropped (KAN-326 Phase C).
+
 ### Railway settings — DO NOT CHANGE WITHOUT READING BUGS-18
 
 Both Railway services (`lyra-mcp-server` and `lyra-mcp-dev`) are configured with:
