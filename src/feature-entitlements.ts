@@ -24,10 +24,11 @@
  *      false, mirroring the GUI (waitlist/not_applied users never reach the app;
  *      suspended users are blocked at login, KAN-319). Enforced before any
  *      feature check.
- *   2. FEATURE RESOLUTION — per-feature defaults follow the tier model
- *      (registry FEATURE_TIER): GA features default on; test features default on
- *      for access_tier='beta', off for 'prod'. An explicit entitlement row always
- *      wins. One source of truth shared with the GUI (feature-registry.ts).
+ *   2. FEATURE RESOLUTION — option 3 (KAN-330 / comment #11300): the tier is a
+ *      LABEL only. GA features default on (revocable); TEST features default OFF
+ *      and require an explicit feature_entitlements row (granted via the web
+ *      admin bulk action). access_tier does NOT grant test features. An explicit
+ *      row always wins. One source of truth shared with the GUI (resolveEntitlements).
  *
  * Legacy columns (access_stage, beta_access_status, is_beta_eligible,
  * early_access) are NEVER read here — they are being dropped in Phase C of
@@ -171,11 +172,12 @@ export async function requireFeatures(userId: string, keys: string[]): Promise<v
     .eq('profile_id', prof.id);
   const rows = (data ?? []) as { feature_key: string; enabled: boolean }[];
   for (const k of keys) {
-    // v2: tier-aware default (beta-on/prod-off for test features, GA always on);
+    // v2 (option 3): GA features default on; TEST features default OFF and need
+    // an explicit entitlement row — no access_tier tier-default (GUI parity).
     // v1: flat FEATURE_DEFAULTS. An explicit entitlement row wins either way.
     const enabled =
       v2 && isFeatureKey(k)
-        ? resolveFeature(rows, k as FeatureKey, prof.access_tier)
+        ? resolveFeature(rows, k as FeatureKey)
         : isFeatureEnabled(rows, k);
     if (!enabled) {
       throw new Error(DENY_MESSAGE[k] ?? `The "${k}" feature is not enabled for your account.`);

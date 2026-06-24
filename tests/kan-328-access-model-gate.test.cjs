@@ -37,15 +37,20 @@ describe('KAN-328: feature-registry tier model', () => {
     expect(registry).toMatch(/convene_paid_channels:\s*['"]test['"]/);
   });
 
-  test('tierDefault: GA always on; test on for beta, off for prod', () => {
-    // GA short-circuits to true; the test-tier default is exactly access_tier==='beta'.
-    expect(registry).toMatch(/FEATURE_TIER\[key\]\s*===\s*['"]GA['"]\s*\)\s*return true/);
-    expect(registry).toMatch(/return\s+accessTier\s*===\s*['"]beta['"]/);
+  test('tierDefault (option 3): GA always on; test features default OFF (no access_tier grant)', () => {
+    // Option 3 (KAN-330 / KAN-328 comment #11300): the tier is a label only.
+    // GA → true; test → false (an explicit feature_entitlements row is required).
+    // access_tier is NOT consulted, so tierDefault takes only the key.
+    expect(registry).toMatch(/return\s+FEATURE_TIER\[key\]\s*===\s*['"]GA['"]/);
+    expect(registry).toMatch(/function tierDefault\(key:\s*FeatureKey\)/);
+    // The old beta tier-default must be gone — otherwise MCP would grant test
+    // features the GUI shows as off (the MCP-only access path KAN-328 forbids).
+    expect(registry).not.toMatch(/accessTier\s*===\s*['"]beta['"]/);
   });
 
   test('resolveFeature: an explicit entitlement row wins over the tier default', () => {
     expect(registry).toMatch(/rows\.find\(\([^)]*\)\s*=>\s*[^)]*\.feature_key\s*===\s*key\)/);
-    expect(registry).toMatch(/row\s*\?\s*row\.enabled\s*:\s*tierDefault\(key,\s*accessTier\)/);
+    expect(registry).toMatch(/row\s*\?\s*row\.enabled\s*:\s*tierDefault\(key\)/);
   });
 
   test('hasLiveAccess: user_status==="live" AND not suspended', () => {
@@ -95,8 +100,11 @@ describe('KAN-328: feature-entitlements access gate', () => {
     expect(gateIdx).toBeLessThan(featureReadIdx);
   });
 
-  test('requireFeatures resolves features by access_tier under v2', () => {
-    expect(entitlements).toMatch(/resolveFeature\(rows,\s*k[^,]*,\s*prof\.access_tier\)/);
+  test('requireFeatures resolves features by explicit entitlement only under v2 (no access_tier tier-default)', () => {
+    // Option 3: resolveFeature is called WITHOUT access_tier — test features need
+    // an explicit entitlement row; the tier no longer grants them (GUI parity).
+    expect(entitlements).toMatch(/resolveFeature\(rows,\s*k\s+as\s+FeatureKey\)/);
+    expect(entitlements).not.toMatch(/resolveFeature\([^)]*prof\.access_tier/);
   });
 
   test('the legacy v1 path (flat defaults) is retained for ACCESS_MODEL_V2=OFF', () => {
