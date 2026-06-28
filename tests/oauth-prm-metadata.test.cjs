@@ -30,6 +30,24 @@ describe('OAuth PRM endpoint (KAN-88)', () => {
     expect(indexSrc).toMatch(/bearer_methods_supported:\s*\[\s*['"]header['"]/);
   });
 
+  // BUGS-59: RFC 9728 §2 human-readable display name. MCP clients (e.g. Claude's
+  // connector flow) render this in the "Authenticate your <name> account" prompt;
+  // when it was absent the prompt showed an empty "{}".
+  test('advertises a human-readable resource_name (BUGS-59)', () => {
+    const handlerStart = indexSrc.indexOf("app.get('/.well-known/oauth-protected-resource'");
+    expect(handlerStart).toBeGreaterThan(-1);
+    const region = indexSrc.slice(handlerStart, handlerStart + 1200);
+    expect(region).toMatch(/resource_name:\s*['"][^'"]+['"]/);
+  });
+
+  // BUGS-59: there must be exactly ONE PRM handler. A dead duplicate used to
+  // shadow the live one; Express dispatches to the first match, so a second
+  // registration silently advertises stale metadata. Guard against regression.
+  test('registers the PRM route exactly once (no shadowed duplicate)', () => {
+    const matches = indexSrc.match(/app\.get\(\s*['"]\/\.well-known\/oauth-protected-resource['"]/g) || [];
+    expect(matches).toHaveLength(1);
+  });
+
   test('sets CORS open (clients are off-origin)', () => {
     const handlerStart = indexSrc.indexOf("app.get('/.well-known/oauth-protected-resource'");
     expect(handlerStart).toBeGreaterThan(-1);
