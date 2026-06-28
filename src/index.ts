@@ -994,6 +994,11 @@ if (TRANSPORT === 'stdio') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.json({
       resource: process.env.MCP_RESOURCE_URL || 'https://mcp.checklyra.com/mcp',
+      // BUGS-59 — RFC 9728 §2 human-readable display name. MCP clients (e.g.
+      // Claude's connector flow) render this in the "Authenticate your <name>
+      // account" consent prompt; with it absent the prompt shows an empty "{}".
+      // Keep it a short product name, never a URL.
+      resource_name: 'Check Lyra',
       authorization_servers: [authServer.replace(/\/$/, '')],
       bearer_methods_supported: ['header'],
       // Single MVP scope.
@@ -1079,30 +1084,13 @@ if (TRANSPORT === 'stdio') {
     });
   });
 
-  // KAN-74a: Protected Resource Metadata stub (RFC 9728) for future MCP
-  // OAuth 2.1 support (KAN-88). Today we still authenticate write tools
-  // via api-key; this endpoint is a forward declaration so clients that
-  // probe for OAuth-aware servers find the right authorization server
-  // when KAN-88 lands.
-  //
-  // The MCP spec's PRM document points at the authorization server
-  // (checklyra.com, the Next.js web app) that will eventually host
-  // /oauth/authorize and /oauth/token. Until KAN-88 implements those
-  // routes, this endpoint serves a non-binding pointer — clients can
-  // discover the future shape without breaking on missing endpoints.
-  app.get('/.well-known/oauth-protected-resource', (_req, res) => {
-    res.json({
-      resource: 'https://mcp.checklyra.com',
-      authorization_servers: ['https://checklyra.com'],
-      scopes_supported: ['profile:read', 'profile:write'],
-      bearer_methods_supported: ['header'],
-      // Until KAN-88 lands, OAuth isn't actually wired — we advertise
-      // the future shape so clients can plan, not promise it works now.
-      // The api-key auth on write tools is documented separately on
-      // /.well-known/mcp.json's `authentication` field.
-      _status: 'KAN-88-pending',
-    });
-  });
+  // BUGS-59 — a second, DEAD `/.well-known/oauth-protected-resource` handler
+  // (the old KAN-74a "KAN-88-pending" forward-declaration stub) used to sit
+  // here. Express dispatches to the first-registered matching route — the live
+  // KAN-88 handler above — so this duplicate never executed (it still advertised
+  // the stale `profile:read`/`profile:write` scopes + `_status: KAN-88-pending`).
+  // Removed to avoid misleading future readers; the live handler above is the
+  // single source of truth for the PRM document.
 
   app.post('/mcp', async (req, res) => {
     const transport = new StreamableHTTPServerTransport({
