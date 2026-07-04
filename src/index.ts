@@ -1073,6 +1073,7 @@ if (TRANSPORT === 'stdio') {
         'lyra_update_profile',
         'lyra_update_manual_of_me',
         'lyra_add_item',
+        'lyra_update_item',
         'lyra_remove_item',
         'lyra_add_school',
         'lyra_update_school',
