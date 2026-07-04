@@ -101,11 +101,11 @@ describe('MCP Server - Write Tool Annotations', () => {
 
   test('additive tools have destructiveHint: false', () => {
     const nonDestructive = (writeSource.match(/destructiveHint:\s*false/g) || []);
-    // update_profile, update_manual_of_me, add_item, add_school,
-    // update_school, add_link, publish_profile = 7
+    // update_profile, update_manual_of_me, add_item, update_item, add_school,
+    // update_school, add_link, publish_profile = 8
     // (update_manual_of_me + update_school added in the June-2026
-    // profile-redesign MCP port.)
-    expect(nonDestructive.length).toBe(7);
+    // profile-redesign MCP port; update_item added in KAN-404 #12.)
+    expect(nonDestructive.length).toBe(8);
   });
 
   test('coaching tool has readOnlyHint', () => {

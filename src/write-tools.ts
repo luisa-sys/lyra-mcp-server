@@ -46,6 +46,20 @@ function okResponse(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
 
+/**
+ * KAN-404 #1 — school-postcode validity check. Mirrors the web validator:
+ * after trimming, a valid (full or partial) UK-style postcode is 2–12 chars
+ * long and contains AT LEAST one letter AND one digit. This accepts
+ * 'SW1A' / 'M1' / 'SW1A 1AA' and rejects '' / 'London' (no digit) /
+ * '12345' (no letter). Only schools are required to have one — organisations
+ * and communities keep location optional.
+ */
+function isValidSchoolPostcode(value: string | null | undefined): boolean {
+  const trimmed = (value ?? '').trim();
+  if (trimmed.length < 2 || trimmed.length > 12) return false;
+  return /[A-Za-z]/.test(trimmed) && /[0-9]/.test(trimmed);
+}
+
 export function registerWriteTools(server: McpServer) {
 
   // ── Tool: Update Profile Fields ─────────────────────────────
@@ -178,25 +192,115 @@ export function registerWriteTools(server: McpServer) {
     }
   );
 
+  // ── Tool: Update Profile Item ───────────────────────────────
+  // KAN-404 #12: edit an existing profile item's text (title / description /
+  // url) in place, rather than remove-and-re-add. Mirrors lyra_add_item's
+  // auth + sanitise + moderation pattern; owner-scoped write (KAN-260
+  // belt-and-braces: .eq('id') AND .eq('profile_id')).
+  server.registerTool(
+    'lyra_update_item',
+    {
+      title: 'Update Profile Item',
+      description:
+        "Edit an existing profile item's text (title, description, or url). Pass only the fields you want to change; pass an empty string for description or url to clear it. Requires API key.",
+      inputSchema: {
+        api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
+        item_id: z.string().describe('Item UUID to update'),
+        title: z.string().optional().describe('New item title'),
+        description: z.string().optional().describe('New description. Pass an empty string to clear it.'),
+        url: z.string().optional().describe('New URL (must start with http:// or https://). Pass an empty string to clear it.'),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ api_key, item_id, title, description, url }) => {
+      let auth: { userId: string; profileId: string; slug: string | undefined };
+      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
+
+      // KAN-242 + KAN-244 — sanitise + moderate each provided field BEFORE
+      // the write, exactly as lyra_add_item does. Only fields the caller
+      // passed are touched.
+      const updates: Record<string, string | null> = {};
+
+      if (title !== undefined) {
+        const sanitisedTitle = sanitiseText(title, 200);
+        const titleMod = await moderateAndAudit({
+          text: sanitisedTitle,
+          fieldType: 'public',
+          field: 'profile_items.title',
+          profileId: auth.profileId,
+        });
+        if (!titleMod.ok) return errorResponse(titleMod.error);
+        updates.title = sanitisedTitle;
+      }
+
+      if (description !== undefined) {
+        const sanitisedDesc = sanitiseText(description, 1000);
+        if (sanitisedDesc.length > 0) {
+          const descMod = await moderateAndAudit({
+            text: sanitisedDesc,
+            fieldType: 'public',
+            field: 'profile_items.description',
+            profileId: auth.profileId,
+          });
+          if (!descMod.ok) return errorResponse(descMod.error);
+        }
+        updates.description = sanitisedDesc.length > 0 ? sanitisedDesc : null;
+      }
+
+      if (url !== undefined) {
+        if (url.length === 0) {
+          updates.url = null;
+        } else {
+          const cleanUrl = sanitiseUrl(url);
+          if (!cleanUrl) return errorResponse('Invalid URL — must start with http:// or https://');
+          updates.url = cleanUrl;
+        }
+      }
+
+      if (Object.keys(updates).length === 0) return errorResponse('No fields to update');
+
+      const sb = getSupabase();
+      // Ownership-scoped: only the caller's own item rows (KAN-260).
+      const { data, error } = await sb.from('profile_items')
+        .update(updates)
+        .eq('id', item_id)
+        .eq('profile_id', auth.profileId)
+        .select('id')
+        .maybeSingle();
+      if (error) return clientError(error, 'write-tools');
+      if (!data) return errorResponse('Profile item not found for this profile');
+      return okResponse({ success: true, id: item_id, updated: Object.keys(updates) });
+    }
+  );
+
   // ── Tool: Add School ────────────────────────────────────────
   server.registerTool(
     'lyra_add_school',
     {
       title: 'Add School Affiliation',
-      description: 'Add a school connection to a Lyra profile. Affiliations are HIDDEN from the public profile and search by default — pass show_on_profile=true to make this one visible. Requires API key.',
+      description: 'Add a school, organisation, or community connection to a Lyra profile. Affiliations are HIDDEN from the public profile and search by default — pass show_on_profile=true to make this one visible. Schools require a postcode (full or partial) in school_location; organisations and communities keep location optional. Requires API key.',
       inputSchema: {
         api_key: z.string().optional().describe('Lyra API key (lyra_…). Optional — can also be sent via Authorization: Bearer <key>, which most MCP clients do via their connector setup.'),
-        school_name: z.string().describe('School name'),
-        school_location: z.string().optional().describe('Location'),
+        school_name: z.string().describe('School / organisation / community name'),
+        school_location: z.string().optional().describe('Location. For schools this must be a postcode (full or partial, e.g. "SW1A" or "SW1A 1AA"). Optional for organisations and communities.'),
+        affiliation_type: z.enum(['school', 'organisation', 'community']).optional().default('school').describe('Type of affiliation. Defaults to "school". Schools require a postcode in school_location.'),
         relationship: z.enum(['parent', 'student', 'alumni', 'staff', 'other']).optional().describe('Relationship to school'),
         description: z.string().optional().describe('Optional free-text note about this affiliation (shown only when show_on_profile is true)'),
         show_on_profile: z.boolean().optional().describe('Whether this affiliation is visible on the public profile and in search. Defaults to false (hidden).'),
       },
       annotations: { destructiveHint: false },
     },
-    async ({ api_key, school_name, school_location, relationship, description, show_on_profile }) => {
+    async ({ api_key, school_name, school_location, affiliation_type, relationship, description, show_on_profile }) => {
       let auth: { userId: string; profileId: string; slug: string | undefined };
       try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
+
+      // KAN-404 #1 — schools must carry a (full or partial) postcode in
+      // school_location; organisations and communities keep it optional.
+      // Mirrors the web validator (trimmed 2–12 chars, a letter AND a digit).
+      const type = affiliation_type ?? 'school';
+      if (type === 'school' && !isValidSchoolPostcode(school_location)) {
+        return errorResponse('Schools need a postcode (full or partial) — e.g. "SW1A" or "SW1A 1AA".');
+      }
 
       // KAN-242 + KAN-244 — moderation + audit. Affiliations render publicly
       // ONLY when show_on_profile is true, but we moderate regardless so
@@ -235,6 +339,7 @@ export function registerWriteTools(server: McpServer) {
         profile_id: auth.profileId,
         school_name: sanitisedName,
         school_location: sanitisedLoc,
+        affiliation_type: type,
         relationship: relationship || 'parent',
         description: sanitisedDesc,
         // Hidden by default — only show when the caller explicitly opts in.
@@ -242,7 +347,7 @@ export function registerWriteTools(server: McpServer) {
       }).select('id').single();
 
       if (error) return clientError(error, 'write-tools');
-      return okResponse({ success: true, id: data.id, school_name, show_on_profile: show_on_profile === true });
+      return okResponse({ success: true, id: data.id, school_name, affiliation_type: type, show_on_profile: show_on_profile === true });
     }
   );
 
