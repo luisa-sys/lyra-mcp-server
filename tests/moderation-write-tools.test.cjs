@@ -112,6 +112,45 @@ describe('KAN-242 write-tools moderation wiring', () => {
     });
   });
 
+  // KAN-404 #12 — lyra_update_item edits an existing item's title /
+  // description / url. Same moderation-before-write policy as lyra_add_item.
+  describe('lyra_update_item', () => {
+    const block = extractToolBlock('lyra_update_item');
+
+    test('tool block found', () => {
+      expect(block).not.toBeNull();
+    });
+
+    test('moderation entry point is wired', () => {
+      expect(block).toMatch(MODERATION_FN);
+    });
+
+    test('moderates title when provided', () => {
+      expect(block).toMatch(/moderateAndAudit\s*\(\s*\{[\s\S]*?text:\s*sanitisedTitle/);
+    });
+
+    test('moderates description when non-empty', () => {
+      expect(block).toMatch(/if\s*\(\s*sanitisedDesc\.length\s*>\s*0\s*\)\s*\{[\s\S]*?moderateAndAudit\s*\(\s*\{[\s\S]*?text:\s*sanitisedDesc/);
+    });
+
+    test('moderation runs BEFORE the profile_items update', () => {
+      const modIdx = block.search(MODERATION_FN);
+      const updateIdx = block.indexOf(".from('profile_items')");
+      expect(modIdx).toBeGreaterThan(0);
+      expect(updateIdx).toBeGreaterThan(modIdx);
+    });
+
+    test('rejections bail with errorResponse before the write', () => {
+      expect(block).toMatch(/if\s*\(\s*!\s*titleMod\.ok\s*\)\s*return\s+errorResponse/);
+      expect(block).toMatch(/if\s*\(\s*!\s*descMod\.ok\s*\)\s*return\s+errorResponse/);
+    });
+
+    test('owner-scoped write: eq id AND profile_id', () => {
+      expect(block).toMatch(/\.eq\(\s*'id'\s*,\s*item_id\s*\)/);
+      expect(block).toMatch(/\.eq\(\s*'profile_id'\s*,\s*auth\.profileId\s*\)/);
+    });
+  });
+
   describe('lyra_add_school', () => {
     const block = extractToolBlock('lyra_add_school');
 
@@ -132,6 +171,15 @@ describe('KAN-242 write-tools moderation wiring', () => {
       const insertIdx = block.indexOf(".from('school_affiliations')");
       expect(nameRejectIdx).toBeGreaterThan(0);
       expect(insertIdx).toBeGreaterThan(nameRejectIdx);
+    });
+
+    // KAN-404 #1 — school-postcode gate must run BEFORE any DB insert so an
+    // invalid/absent postcode never lands a row for a school affiliation.
+    test('school postcode gate runs before the insert', () => {
+      const gateIdx = block.indexOf('isValidSchoolPostcode');
+      const insertIdx = block.indexOf(".from('school_affiliations')");
+      expect(gateIdx).toBeGreaterThan(0);
+      expect(insertIdx).toBeGreaterThan(gateIdx);
     });
   });
 
