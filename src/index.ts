@@ -90,7 +90,10 @@ server.registerTool(
     // BUGS-21: chain is_suspended=false so suspended profiles don't appear
     // in search results. The service-role client bypasses RLS so app code
     // must enforce this filter — same threat model as KAN-143 visibility.
-    let q = sb.from('profiles').select('slug, display_name, headline, city, country').eq('is_published', true).eq('is_suspended', false);
+    // KAN-334: curated homepage-example (demo) profiles must never surface as
+    // real people in agent discovery — exclude is_homepage_example=true. The
+    // service-role client bypasses RLS, so this filter is the only enforcement.
+    let q = sb.from('profiles').select('slug, display_name, headline, city, country').eq('is_published', true).eq('is_suspended', false).eq('is_homepage_example', false);
 
     // SEC-09 (TDD 2026-06-21): strip PostgREST filter metacharacters before
     // interpolating the term into .or() — the service-role client bypasses RLS.
@@ -123,7 +126,8 @@ server.registerTool(
         .from('profiles')
         .select('id, slug, display_name, headline, city, country')
         .eq('is_published', true)
-        .eq('is_suspended', false);   // BUGS-21
+        .eq('is_suspended', false)   // BUGS-21
+        .eq('is_homepage_example', false);   // KAN-334: demo profiles never surface in school search
 
       results = (allProfiles || []).filter((p) => profileIds.has(p.id));
     }
