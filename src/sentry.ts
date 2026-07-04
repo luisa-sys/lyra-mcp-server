@@ -10,6 +10,8 @@
  * existing project DSN is in lyra's docs/SENTRY_SETUP.md (EU region).
  */
 import * as Sentry from '@sentry/node';
+// SEC-55: strip OAuth secrets / PII from events + breadcrumbs before they ship.
+import { scrubSentryEvent, scrubSentryBreadcrumb } from './sentry-scrub.js';
 
 const dsn = process.env.SENTRY_DSN;
 
@@ -21,6 +23,8 @@ if (sentryEnabled) {
     environment:
       process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'production',
     tracesSampleRate: 0,
+    beforeSend: (event) => scrubSentryEvent(event),
+    beforeBreadcrumb: (breadcrumb) => scrubSentryBreadcrumb(breadcrumb),
     release: process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
   });
 }
