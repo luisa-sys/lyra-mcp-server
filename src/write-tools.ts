@@ -609,10 +609,15 @@ export function registerWriteTools(server: McpServer) {
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ api_key }) => {
-      let auth: { userId: string; profileId: string; slug: string | undefined };
-      try { auth = await authAndProfile(api_key as string); } catch (e: any) { return errorResponse(e.message); }
-
+    async () => {
+      // KAN-354 (finding mcp-quality-5): this tool is classified PUBLIC in
+      // auth-registry.ts and advertised as a public read in
+      // /.well-known/mcp.json, and it returns entirely static guidance with no
+      // per-user data. It must therefore respond WITHOUT authentication — the
+      // former API-key gate contradicted that classification and made an
+      // unauthenticated call (which the /mcp middleware lets through) fail
+      // confusingly inside the handler. The api_key input stays optional for
+      // backward compatibility but is ignored.
       const coaching = {
         introduction: "Help the user build their Lyra profile through natural conversation. Ask about each section below, then use the write tools to save their answers.",
         sections: [
