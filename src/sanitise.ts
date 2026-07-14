@@ -3,10 +3,34 @@
  * Mirrors the web app's sanitise.ts but standalone for the MCP server.
  */
 
-/** Strip HTML tags and limit length */
+/**
+ * Strip all HTML tags from a string.
+ *
+ * SEC-59 / KAN-171 (CodeQL js/incomplete-multi-character-sanitization, high;
+ * CWE-020 / CWE-080 / CWE-116): the previous single-pass
+ * `input.replace(/<[^>]*>/g, '')` was vulnerable to nested-tag bypass — e.g.
+ * `<scr<script>ipt>` still contains `<script>` after one pass. Looping the regex
+ * until the string stabilises guarantees no `<…>` substring survives arbitrary
+ * nesting / interleaving. Convergence is fast: each iteration strictly shrinks
+ * the string (or terminates), and callers bound the input via `maxLength`.
+ *
+ * Mirrors the web app's `src/lib/sanitise.ts` `stripHtml` so both surfaces
+ * sanitise free-text identically (SEC-59 convergence leg).
+ */
+export function stripHtml(input: string): string {
+  let prev: string;
+  let current = input;
+  do {
+    prev = current;
+    current = current.replace(/<[^>]*>/g, '');
+  } while (current !== prev);
+  return current.trim();
+}
+
+/** Strip HTML tags, normalise whitespace, and limit length */
 export function sanitiseText(input: string, maxLength: number): string {
-  return input
-    .replace(/<[^>]*>/g, '')
+  return stripHtml(input)
+    .replace(/\s+/g, ' ')
     .trim()
     .substring(0, maxLength);
 }
