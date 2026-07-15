@@ -95,6 +95,16 @@ without those columns will error every gated tool call. The KAN-327 migration ad
 2. Production Supabase gets the columns only when the web team promotes the KAN-327 migration to prod. Set `ACCESS_MODEL_V2=true` on **lyra-mcp-server** ONLY AFTER that. Until then leave it off (prod keeps current behaviour, safely).
 3. The GUI's `registry.ts` must adopt the same tier model for true parity (parent epic KAN-326). The flag is a transition mechanism — removable once prod is migrated and the legacy columns are dropped (KAN-326 Phase C).
 
+**SEC-83 — the suspension refusal is now FLAG-INDEPENDENT.** A suspended caller is
+refused on every gated write/convene tool regardless of `ACCESS_MODEL_V2`. Under v2,
+`profileForUser` already selects `is_suspended`; under v1 the legacy select still omits
+it (prod-safe), so `requireFeatures` does a best-effort standalone `is_suspended` lookup
+(`callerIsSuspended`) that DEGRADES to not-suspended — with a `console.warn` — on any env
+whose `profiles` table predates the KAN-327 column, rather than erroring every call. So on
+prod today the gate is inert-but-safe; it activates automatically the moment the KAN-327
+column lands. Only the *suspension* half is unconditional — the live/waitlist service gate
+(`hasLiveAccess`) stays behind the flag.
+
 ### Railway settings — DO NOT CHANGE WITHOUT READING BUGS-18
 
 Both Railway services (`lyra-mcp-server` and `lyra-mcp-dev`) are configured with:
