@@ -280,6 +280,8 @@ export function registerConveneLifecycleTools(server: McpServer) {
           .eq('id', declinedInv.contact_id)
           .eq('owner_user_id', userId)
           .maybeSingle();
+        // ownership-ok: tribe_members scoped via the host's own contact_id
+        // (declinedInv is on the host's verified gathering) (SEC-85)
         const declinedTribesRes = await sb
           .from('tribe_members')
           .select('tribe_id')
@@ -287,6 +289,8 @@ export function registerConveneLifecycleTools(server: McpServer) {
         const declinedTribeIds = (declinedTribesRes.data ?? []).map((r: { tribe_id: string }) => r.tribe_id);
 
         // Contacts already on the gathering — exclude.
+        // ownership-ok: invitees scoped via input.gathering_id, verified
+        // host-owned above (KAN-210 / SEC-85)
         const { data: alreadyInvitees } = await sb
           .from('gathering_invitees')
           .select('contact_id')
@@ -329,6 +333,8 @@ export function registerConveneLifecycleTools(server: McpServer) {
 
         // Tribe overlap — separate query because tribe_members lookup per contact.
         if (declinedTribeIds.length > 0) {
+          // ownership-ok: tribe_members scoped via declinedTribeIds, which
+          // were derived from the host's own contact's tribes above (SEC-85)
           const { data: candidateTribeRows } = await sb
             .from('tribe_members')
             .select('tribe_id, contact_id')

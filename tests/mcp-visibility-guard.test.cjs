@@ -12,8 +12,13 @@
  *
  * This is a static-grep regression test. If a future refactor removes
  * the `.eq('visibility', 'public')` filter from any `profile_items`
- * read in `src/index.ts`, this test fails — preventing the regression
- * from reaching production.
+ * read, this test fails — preventing the regression from reaching
+ * production.
+ *
+ * SEC-85 — the scan was widened from `src/index.ts` only to also cover every
+ * `src/convene-*.ts` tool file, so a future convene tool that reads
+ * `profile_items` is enforced by this guard rather than sitting in a blind
+ * spot. (No convene file reads `profile_items` today; this is forward cover.)
  *
  * If you intentionally need a `profile_items` read WITHOUT the public
  * filter (e.g. a future authenticated tool that wants members_only items),
@@ -28,11 +33,26 @@
 const fs = require('fs');
 const path = require('path');
 
-const indexPath = path.join(__dirname, '..', 'src', 'index.ts');
-const source = fs.readFileSync(indexPath, 'utf8');
-const lines = source.split('\n');
+const srcDir = path.join(__dirname, '..', 'src');
+const indexPath = path.join(srcDir, 'index.ts');
 
-function findProfileItemReads() {
+// SEC-85: index.ts + every convene-*.ts tool file.
+function scanFiles() {
+  const files = [indexPath];
+  for (const name of fs.readdirSync(srcDir).sort()) {
+    if (name.startsWith('convene-') && name.endsWith('.ts')) {
+      files.push(path.join(srcDir, name));
+    }
+  }
+  return files;
+}
+
+function loadFile(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  return { file, relPath: path.relative(path.join(__dirname, '..'), file), text, lines: text.split('\n') };
+}
+
+function findProfileItemReads(lines) {
   const hits = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -52,7 +72,7 @@ function findProfileItemReads() {
   return hits;
 }
 
-function isAllowListed(lineIndex) {
+function isAllowListed(lines, lineIndex) {
   // Walk back up to 3 lines looking for a `visibility-ok:` comment.
   for (let j = Math.max(0, lineIndex - 3); j < lineIndex; j++) {
     if (/visibility-ok:/i.test(lines[j])) return true;
@@ -60,37 +80,44 @@ function isAllowListed(lineIndex) {
   return false;
 }
 
-function nextFiveLines(lineIndex) {
+function nextFiveLines(lines, lineIndex) {
   return lines.slice(lineIndex, Math.min(lines.length, lineIndex + 6)).join('\n');
 }
 
-describe('KAN-143 MCP visibility filter regression guard', () => {
-  const reads = findProfileItemReads();
+const scanned = scanFiles().filter((f) => fs.existsSync(f)).map(loadFile);
 
-  test('source file is readable and contains profile_items reads', () => {
-    expect(source.length).toBeGreaterThan(100);
-    expect(reads.length).toBeGreaterThanOrEqual(5); // 5 read tools as of 2026-05-14
+describe('KAN-143 MCP visibility filter regression guard', () => {
+  const indexFile = scanned.find((s) => s.file === indexPath);
+
+  test('src/index.ts is readable and contains at least 5 profile_items reads', () => {
+    expect(indexFile).toBeDefined();
+    expect(indexFile.text.length).toBeGreaterThan(100);
+    expect(findProfileItemReads(indexFile.lines).length).toBeGreaterThanOrEqual(5); // 5 read tools as of 2026-05-14
+  });
+
+  test('convene tool files are included in the scan (SEC-85)', () => {
+    const conveneScanned = scanned.filter((s) => /convene-.*\.ts$/.test(s.file));
+    expect(conveneScanned.length).toBeGreaterThanOrEqual(5);
   });
 
   test('every profile_items read includes .eq("visibility", "public") or is explicitly allow-listed', () => {
     const unsafe = [];
-    for (const hit of reads) {
-      if (isAllowListed(hit.lineIndex)) continue;
-      const block = nextFiveLines(hit.lineIndex);
-      // Match `.eq('visibility', 'public')` with either single or double quotes
-      // and any whitespace.
-      const hasFilter = /\.eq\(\s*['"]visibility['"]\s*,\s*['"]public['"]\s*\)/.test(block);
-      if (!hasFilter) {
-        unsafe.push({
-          line: hit.lineNumber,
-          snippet: block.slice(0, 200),
-        });
+    for (const src of scanned) {
+      for (const hit of findProfileItemReads(src.lines)) {
+        if (isAllowListed(src.lines, hit.lineIndex)) continue;
+        const block = nextFiveLines(src.lines, hit.lineIndex);
+        // Match `.eq('visibility', 'public')` with either single or double quotes
+        // and any whitespace.
+        const hasFilter = /\.eq\(\s*['"]visibility['"]\s*,\s*['"]public['"]\s*\)/.test(block);
+        if (!hasFilter) {
+          unsafe.push({ where: `${src.relPath}:${hit.lineNumber}`, snippet: block.slice(0, 200) });
+        }
       }
     }
     if (unsafe.length > 0) {
       const msg =
-        'profile_items reads WITHOUT visibility filter (KAN-143):\n' +
-        unsafe.map((u) => `  line ${u.line}: ${u.snippet.replace(/\n/g, ' ').slice(0, 120)}…`).join('\n') +
+        'profile_items reads WITHOUT visibility filter (KAN-143 / SEC-85):\n' +
+        unsafe.map((u) => `  ${u.where}: ${u.snippet.replace(/\n/g, ' ').slice(0, 120)}…`).join('\n') +
         '\nAdd `.eq("visibility", "public")` to each, OR add a `// visibility-ok: <reason>` comment if intentional.';
       throw new Error(msg);
     }
@@ -102,18 +129,20 @@ describe('KAN-143 MCP visibility filter regression guard', () => {
     // value would expose hidden items. Catch typos / refactor accidents.
     const forbiddenValues = ['private', 'draft', 'members_only'];
     const offenders = [];
-    for (const val of forbiddenValues) {
-      const re = new RegExp(`\\.eq\\(\\s*['"]visibility['"]\\s*,\\s*['"]${val}['"]\\s*\\)`);
-      lines.forEach((line, idx) => {
-        if (re.test(line)) {
-          offenders.push({ line: idx + 1, value: val, snippet: line.trim() });
-        }
-      });
+    for (const src of scanned) {
+      for (const val of forbiddenValues) {
+        const re = new RegExp(`\\.eq\\(\\s*['"]visibility['"]\\s*,\\s*['"]${val}['"]\\s*\\)`);
+        src.lines.forEach((line, idx) => {
+          if (re.test(line)) {
+            offenders.push({ where: `${src.relPath}:${idx + 1}`, value: val, snippet: line.trim() });
+          }
+        });
+      }
     }
     if (offenders.length > 0) {
       const msg =
         'profile_items visibility filter uses NON-public value(s):\n' +
-        offenders.map((o) => `  line ${o.line} [${o.value}]: ${o.snippet}`).join('\n');
+        offenders.map((o) => `  ${o.where} [${o.value}]: ${o.snippet}`).join('\n');
       throw new Error(msg);
     }
     expect(offenders.length).toBe(0);
@@ -124,12 +153,47 @@ describe('KAN-143 MCP visibility filter regression guard', () => {
     // should not be `*`. We name columns so an additive schema change (e.g.
     // future `internal_note` column) doesn't silently leak.
     const offenders = [];
-    for (const hit of reads) {
-      const block = nextFiveLines(hit.lineIndex);
-      if (/\.select\(\s*['"]\*['"]\s*\)/.test(block)) {
-        offenders.push(`line ${hit.lineNumber}: uses SELECT *`);
+    for (const src of scanned) {
+      for (const hit of findProfileItemReads(src.lines)) {
+        const block = nextFiveLines(src.lines, hit.lineIndex);
+        if (/\.select\(\s*['"]\*['"]\s*\)/.test(block)) {
+          offenders.push(`${src.relPath}:${hit.lineNumber}: uses SELECT *`);
+        }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  // SEC-85 — negative meta-test. Proves the scan logic actually flags a
+  // `profile_items` read that has had its visibility filter removed.
+  describe('guard actually flags a removed visibility filter (regression proof)', () => {
+    const badLines = [
+      "const { data } = await sb",
+      "  .from('profile_items')",
+      "  .select('id, category, value')",
+      "  .eq('profile_id', profileId);", // visibility filter removed
+    ];
+    const goodLines = [
+      "const { data } = await sb",
+      "  .from('profile_items')",
+      "  .select('id, category, value')",
+      "  .eq('profile_id', profileId)",
+      "  .eq('visibility', 'public');",
+    ];
+
+    test('an unfiltered profile_items read is detected and NOT allow-listed', () => {
+      const hits = findProfileItemReads(badLines);
+      expect(hits.length).toBe(1);
+      expect(isAllowListed(badLines, hits[0].lineIndex)).toBe(false);
+      const block = nextFiveLines(badLines, hits[0].lineIndex);
+      expect(/\.eq\(\s*['"]visibility['"]\s*,\s*['"]public['"]\s*\)/.test(block)).toBe(false);
+    });
+
+    test('the same read with the visibility filter restored passes', () => {
+      const hits = findProfileItemReads(goodLines);
+      expect(hits.length).toBe(1);
+      const block = nextFiveLines(goodLines, hits[0].lineIndex);
+      expect(/\.eq\(\s*['"]visibility['"]\s*,\s*['"]public['"]\s*\)/.test(block)).toBe(true);
+    });
   });
 });

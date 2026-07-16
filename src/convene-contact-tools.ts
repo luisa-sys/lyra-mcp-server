@@ -278,11 +278,18 @@ export function registerConveneContactTools(server: McpServer) {
         // If linking, verify the target profile exists and is published so we
         // never link to a phantom or unpublished id. (profiles is a public
         // table — no ownership filter required for this read.)
+        //
+        // SEC-85 (finding c): also require the profile to be non-suspended.
+        // A suspended-but-still-published profile must not be linkable; the
+        // availability fan-out independently re-filters is_suspended=false
+        // (convene-availability-tool.ts), but we mirror the profiles-RLS
+        // suspension rule here for defence-in-depth and parity.
         if (input.linked_profile_id) {
           const { data: profile } = await sb
             .from('profiles')
             .select('id, is_published')
             .eq('id', input.linked_profile_id)
+            .eq('is_suspended', false)
             .maybeSingle();
           if (!profile) return errorResponse('linked_profile_id does not match any Lyra profile');
           if (profile.is_published === false) {
