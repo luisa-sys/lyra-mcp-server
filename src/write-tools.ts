@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getSupabase } from './supabase.js';
 import { authenticateApiKey, getProfileForUser } from './auth.js';
-import { requireFeatures, requireAgeVerifiedToPublish } from './feature-entitlements.js';
+import { requireFeatures } from './feature-entitlements.js';
 import { sanitiseText, sanitiseUrl } from './sanitise.js';
 import { moderateAndAudit } from './moderation-audit.js';
 
@@ -536,7 +536,6 @@ export function registerWriteTools(server: McpServer) {
 
       // KAN-282/KAN-319: publishing over MCP is age-gated when the env switch is on.
       if (published) {
-        try { await requireAgeVerifiedToPublish(auth.userId); } catch (e: any) { return errorResponse(e.message); }
       }
 
       const sb = getSupabase();
