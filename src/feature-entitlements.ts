@@ -185,18 +185,17 @@ export async function requireFeatures(userId: string, keys: string[]): Promise<v
   }
 }
 
-/**
- * Block publishing over MCP when the env-wide age gate is on and the user isn't
- * age-verified (mirrors the web publishProfile gate; KAN-282/KAN-319). Requires
- * AGE_VERIFICATION_REQUIRED on the MCP server's Railway env. Independent of
- * ACCESS_MODEL_V2.
+/*
+ * requireAgeVerifiedToPublish (KAN-282/KAN-319) was REMOVED 2026-07-20, along
+ * with the web publishProfile gate it mirrored. Lyra no longer runs a provider
+ * age check: age is an 18+ self-declaration made at sign-up and recorded by the
+ * web app, so there is nothing for MCP to re-check at publish time and
+ * lyra_publish_profile no longer consults age at all.
+ *
+ * `AGE_VERIFICATION_REQUIRED` is now read by nothing in this server — unset it
+ * on both Railway services. Leaving it set is inert but misleading.
+ *
+ * `age_status` remains on ProfileGate because the v1 select list is pinned to
+ * columns guaranteed to exist on every environment (see profileForUser); it is
+ * no longer consulted by any gate.
  */
-export async function requireAgeVerifiedToPublish(userId: string): Promise<void> {
-  if (process.env.AGE_VERIFICATION_REQUIRED !== 'true') return;
-  const prof = await profileForUser(userId);
-  if (!prof || prof.age_status !== 'passed') {
-    throw new Error(
-      'You need to verify your age before publishing your profile. Visit checklyra.com/verify-age.',
-    );
-  }
-}
