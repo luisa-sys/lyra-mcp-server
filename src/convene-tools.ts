@@ -214,7 +214,7 @@ export function registerConveneTools(server: McpServer) {
           .eq('host_user_id', userId)
           .is('deleted_at', null)
           .maybeSingle();
-        if (gErr) return errorResponse(gErr.message);
+        if (gErr) return clientError(gErr, 'convene-tools');
         if (!gathering) return errorResponse('Gathering not found or you are not the host');
 
         // ownership-ok: invitee read is scoped via gathering_id = host's gathering (KAN-205)
