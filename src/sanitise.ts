@@ -19,10 +19,15 @@ export function sanitiseText(input: string, maxLength: number): string {
  * term is interpolated raw into `.or('display_name.ilike.%…%,…')`. PostgREST parses
  * `.or()` as a filter DSL, so `,` `(` `)` could alter the filter tree and `%` `_`
  * are ilike wildcards that could turn the query into a match-all. Strip them all.
+ *
+ * SEC-59 (2026-07-13): unified with the web + admin-MCP surfaces. The admin-MCP
+ * sanitiser already stripped the fuller defensive set — `.` and `:` are PostgREST
+ * operator separators (`column.operator.value`, casts/ranges use `:`) and `"` is a
+ * quote — so this strip-set is aligned UP to that superset: `, ( ) * % _ . : " \`.
  */
 export function sanitiseSearchTerm(input: string, maxLength = 100): string {
   return input
-    .replace(/[,()*%_\\]/g, ' ')
+    .replace(/[,()*%_.:"\\]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .substring(0, maxLength);
