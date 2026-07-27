@@ -76,7 +76,7 @@ Reverse for rollback: web first (Vercel revert), then MCP (Railway redeploy of p
 - Railway auto-deploys from `main` branch via the Railway GitHub App
 - Push to main only after tests pass
 - Production MCP server points to production Supabase; dev MCP server points to dev Supabase (see Gotcha #6)
-- Current test floor: **217 tests** (13 suites). Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
+- Current test floor: **763 tests** (45 suites). Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
 
 ### `ACCESS_MODEL_V2` — schema-gated rollout (KAN-328) — set per-service, NOT in code
 

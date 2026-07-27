@@ -13,8 +13,10 @@
  * Why duplicated: the MCP server (this repo) can't import TypeScript from the
  * lyra repo. Shared package or HTTP delegation would be the longer-term fix.
  * For v1, manual lockstep — any change to weights/factors/keywords MUST be
- * made in both places. A unit test will eventually compare exports between
- * the two repos to catch drift (KAN-XXX follow-up).
+ * made in both places. That lockstep is now CHECKED, not merely asked for:
+ * `scripts/check-convene-scoring-drift.cjs` (KAN-426) compares the scoring
+ * constants and the numeric fingerprint of every scoring function in this file
+ * against the lyra copy on every PR, and fails the build on any difference.
  *
  * Keep this file's `WEIGHTS` and `TRIBE_KEYWORDS_BY_INTENT` constants in sync
  * with the lyra-side definitions verbatim.
