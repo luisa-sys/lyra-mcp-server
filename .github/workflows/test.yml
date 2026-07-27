@@ -53,6 +53,24 @@ jobs:
           # class KAN-167 / KAN-168 forbid.
           npm test
 
+      - name: Convene scoring drift check (KAN-426)
+        run: |
+          set -euo pipefail
+          # `src/convene-recommend-scoring.ts` and
+          # `src/convene-recommend-venue-scoring.ts` are verbatim copies of
+          # lyra/src/lib/recommend/convene/**. This asserts the two copies still
+          # agree on weights, keywords and thresholds.
+          #
+          # NO credential: luisa-sys/lyra is a public repo, so the check reads
+          # raw.githubusercontent.com anonymously. Least privilege by having no
+          # privilege — nothing to scope, store or rotate.
+          #
+          # NOT continue-on-error and NOT conditional. A fetch failure, a parse
+          # failure or real drift all exit non-zero and fail this job, per the
+          # Workflow & Backup Integrity Policy: a check that goes green when it
+          # could not compare is worse than no check.
+          npm run check:convene-drift
+
       - name: npm audit (advisory)
         run: |
           set -euo pipefail
