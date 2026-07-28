@@ -133,7 +133,9 @@ const PAIRS = [
       'scoreDistance',
       'scoreDietary',
       'scoreCapacity',
+      'scoreOpeningHours',
       'scorePriceTier',
+      'scoreAccessibilityFit',
       'scorePriorVisits',
       'scoreDiversityPenalty',
       'scoreExternalRating',
@@ -174,21 +176,6 @@ const KNOWN_DIVERGENCES = {
       '|| 0.5 - / 86400000 < 7 0.3 - < 14 0.5 < 30 0.85 - < 180 1 < 365 0.75 0.55 > 1',
     remote:
       '|| 0.5 - / 1000 * 60 * 60 * 24 < 7 0.3 - < 14 0.5 < 30 0.85 - < 180 1 < 365 0.75 0.55 > 1',
-  },
-  'venue/scoreVenue': {
-    ticket: 'BUGS-78',
-    severity: 'REAL DRIFT — venue rankings differ between the web app and MCP',
-    reason:
-      'Both copies declare the identical 10-key WEIGHTS map, but this repo\'s scoreVenue ' +
-      'only ever populates 8 of them: it never calls an openingHours or accessibility ' +
-      'factor, which lyra scores via scoreOpeningHours() and scoreAccessibilityFit(). ' +
-      'weightedAverage() sums only the weights of keys present in `breakdown`, so MCP ' +
-      'normalises over 0.90 of weight against lyra\'s 1.00 and drops the accessibility ' +
-      'signal entirely — the same venue set can rank differently on mcp.checklyra.com ' +
-      'than on checklyra.com. Porting the two factors is a behaviour change to a shipped ' +
-      'MCP tool and is out of scope for this CI-only ticket: raised as BUGS-78.',
-    local: '!= && < < ?? => > 0 ?? > 0 => === 0 0.6 === 0 ? 1 1 => => =>',
-    remote: '!= && < 0 < ?? => > 0 0 ?? > 0 => === 0 0 => =>',
   },
 };
 
