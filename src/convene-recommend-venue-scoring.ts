@@ -97,17 +97,42 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 export function scoreVenue(candidate: VenueCandidate, context: VenueContext, nowMs: number = Date.now()): VenueScore {
-  // Hard filters
+  // Hard filters — return early with hardFilterFailed set.
   if (candidate.capacityEstimate != null && candidate.capacityEstimate < context.capacityRequired) {
-    return makeFailed(candidate.venueId, 'capacity', `Capacity ${candidate.capacityEstimate} < required ${context.capacityRequired}`);
+    return {
+      venueId: candidate.venueId,
+      score: 0,
+      reasons: [`Capacity ${candidate.capacityEstimate} < required ${context.capacityRequired}`],
+      breakdown: zeroBreakdown(),
+      hardFilterFailed: 'capacity',
+    };
   }
-  const requiredAcc = context.required.accessibility ?? [];
-  const missingAcc = requiredAcc.filter((r) => !candidate.accessibilityFlags.includes(r));
-  if (missingAcc.length > 0) return makeFailed(candidate.venueId, 'accessibility', `Missing accessibility: ${missingAcc.join(', ')}`);
-  const requiredDiet = context.required.dietary ?? [];
-  if (requiredDiet.length > 0) {
-    const overlap = requiredDiet.filter((r) => candidate.dietaryFlags.includes(r));
-    if (overlap.length === 0) return makeFailed(candidate.venueId, 'dietary', `No dietary match for ${requiredDiet.join(', ')}`);
+
+  const requiredAccessibility = context.required.accessibility ?? [];
+  const missingAcc = requiredAccessibility.filter((r) => !candidate.accessibilityFlags.includes(r));
+  if (missingAcc.length > 0) {
+    return {
+      venueId: candidate.venueId,
+      score: 0,
+      reasons: [`Missing accessibility: ${missingAcc.join(', ')}`],
+      breakdown: zeroBreakdown(),
+      hardFilterFailed: 'accessibility',
+    };
+  }
+
+  // Dietary hard-filter: zero overlap with required = hard fail.
+  const requiredDietary = context.required.dietary ?? [];
+  if (requiredDietary.length > 0) {
+    const overlap = requiredDietary.filter((r) => candidate.dietaryFlags.includes(r));
+    if (overlap.length === 0) {
+      return {
+        venueId: candidate.venueId,
+        score: 0,
+        reasons: [`No dietary match for ${requiredDietary.join(', ')}`],
+        breakdown: zeroBreakdown(),
+        hardFilterFailed: 'dietary',
+      };
+    }
   }
 
   const factors = {
@@ -115,15 +140,31 @@ export function scoreVenue(candidate: VenueCandidate, context: VenueContext, now
     distance: scoreDistance(candidate, context),
     dietaryFit: scoreDietary(candidate, context),
     capacity: scoreCapacity(candidate, context),
-    openingHours: { score: 0.6, reason: null as string | null },
+    openingHours: scoreOpeningHours(),
     priceTier: scorePriceTier(candidate, context),
-    accessibility: { score: requiredAcc.length === 0 ? 1.0 : 1.0, reason: null as string | null },
+    accessibility: scoreAccessibilityFit(candidate, context),
     priorVisits: scorePriorVisits(candidate),
     diversityPenalty: scoreDiversityPenalty(candidate, nowMs),
     externalRating: scoreExternalRating(candidate),
   };
-  const breakdown = Object.fromEntries(Object.entries(factors).map(([k, v]) => [k, v.score])) as VenueScore['breakdown'];
-  const reasons = Object.values(factors).map((f) => f.reason).filter((r): r is string => Boolean(r));
+
+  const breakdown = {
+    typeFit: factors.typeFit.score,
+    distance: factors.distance.score,
+    dietaryFit: factors.dietaryFit.score,
+    capacity: factors.capacity.score,
+    openingHours: factors.openingHours.score,
+    priceTier: factors.priceTier.score,
+    accessibility: factors.accessibility.score,
+    priorVisits: factors.priorVisits.score,
+    diversityPenalty: factors.diversityPenalty.score,
+    externalRating: factors.externalRating.score,
+  };
+
+  const reasons = Object.values(factors)
+    .map((f) => f.reason)
+    .filter((r): r is string => Boolean(r));
+
   return {
     venueId: candidate.venueId,
     score: weightedAverage(breakdown, WEIGHTS),
@@ -132,20 +173,18 @@ export function scoreVenue(candidate: VenueCandidate, context: VenueContext, now
   };
 }
 
-function makeFailed(
-  id: string,
-  kind: 'capacity' | 'accessibility' | 'dietary',
-  reason: string
-): VenueScore {
+function zeroBreakdown() {
   return {
-    venueId: id,
-    score: 0,
-    reasons: [reason],
-    breakdown: {
-      typeFit: 0, distance: 0, dietaryFit: 0, capacity: 0, openingHours: 0,
-      priceTier: 0, accessibility: 0, priorVisits: 0, diversityPenalty: 0, externalRating: 0,
-    },
-    hardFilterFailed: kind,
+    typeFit: 0,
+    distance: 0,
+    dietaryFit: 0,
+    capacity: 0,
+    openingHours: 0,
+    priceTier: 0,
+    accessibility: 0,
+    priorVisits: 0,
+    diversityPenalty: 0,
+    externalRating: 0,
   };
 }
 
@@ -192,6 +231,22 @@ function scoreCapacity(c: VenueCandidate, ctx: VenueContext) {
   if (slack < 3) return { score: 0.7, reason: 'Just-right size' };
   if (slack < 20) return { score: 1.0, reason: 'Comfortable size' };
   return { score: 0.6, reason: 'Might feel empty' };
+}
+
+function scoreOpeningHours(): { score: number; reason: string | null } {
+  // Placeholder: real implementation will consult opening_hours JSON against
+  // the proposed slot. For v1 we treat as neutral.
+  return { score: 0.6, reason: null };
+}
+
+function scoreAccessibilityFit(candidate: VenueCandidate, context: VenueContext): { score: number; reason: string | null } {
+  const required = context.required.accessibility ?? [];
+  if (required.length === 0) return { score: 1.0, reason: null };
+  const missing = required.filter((r) => !candidate.accessibilityFlags.includes(r));
+  if (missing.length === 0) return { score: 1.0, reason: `Accessibility: ${required.join(', ')} ✓` };
+  // Hard filter is handled in scoreVenue; this only fires if caller chose
+  // to keep the candidate anyway.
+  return { score: 0.0, reason: `Missing: ${missing.join(', ')}` };
 }
 
 function scorePriceTier(c: VenueCandidate, ctx: VenueContext) {
