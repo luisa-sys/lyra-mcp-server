@@ -19,7 +19,7 @@
   "author": "Lyra",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@sentry/node": "^10.59.0",
     "@supabase/supabase-js": "^2.110.7",
     "cors": "^2.8.6",
