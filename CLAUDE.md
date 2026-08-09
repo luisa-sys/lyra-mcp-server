@@ -76,7 +76,7 @@ Reverse for rollback: web first (Vercel revert), then MCP (Railway redeploy of p
 - Railway auto-deploys from `main` branch via the Railway GitHub App
 - Push to main only after tests pass
 - Production MCP server points to production Supabase; dev MCP server points to dev Supabase (see Gotcha #6)
-- Current test floor: **217 tests** (13 suites). Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
+- Current test floor: **734 tests** (44 suites). **Measured 2026-08-09** via `npx tsc && npm test` on `main` `3a6a1ea`, during the Weekly Health + Regression routine — matches the figure the `luisa-sys/lyra` repo's own `CLAUDE.md` already cited for this repo, so the two are now in sync. Re-measure and update this line whenever it drifts — a floor far below reality (this one was **217/13**, over 3x stale) cannot detect a regression that deletes hundreds of tests. A prior fix (PR [#126](https://github.com/luisa-sys/lyra-mcp-server/pull/126), 2026-07-24, reporting 638/41) was opened but never merged and is now itself stale — superseded by this line. Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
 
 ### `ACCESS_MODEL_V2` — schema-gated rollout (KAN-328) — set per-service, NOT in code
 
