@@ -58,11 +58,6 @@ const DENY_MESSAGE: Record<string, string> = {
   convene: 'Convene is not enabled for your account yet.',
 };
 
-/** True when the new access model (user_status/access_tier gating) is active. */
-export function accessModelV2Enabled(): boolean {
-  return process.env.ACCESS_MODEL_V2 === 'true';
-}
-
 interface ProfileGate {
   id: string;
   age_status: string;
@@ -88,13 +83,17 @@ async function profileForUser(userId: string): Promise<ProfileGate | null> {
   // The v1 branch selects ONLY columns guaranteed to exist everywhere, so an
   // un-migrated `profiles` table (prod pre-KAN-327) never references a missing
   // column.
-  const { data, error } = accessModelV2Enabled()
-    ? await sb
-        .from('profiles')
-        .select('id, age_status, user_status, access_tier, is_suspended')
-        .eq('user_id', userId)
-        .single()
-    : await sb.from('profiles').select('id, age_status').eq('user_id', userId).single();
+  // ONE query, all columns, always. The v1 branch selected only `id,
+  // age_status` because prod's `profiles` predated KAN-327 — that is no longer
+  // true. Verified 2026-08-10 against all three Supabase projects: dev, staging
+  // and prod each have user_status, access_tier, is_suspended and age_status,
+  // all NOT NULL. The branch existed to protect against a schema that no longer
+  // exists anywhere.
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id, age_status, user_status, access_tier, is_suspended')
+    .eq('user_id', userId)
+    .single();
   if (error || !data) {
     // PGRST116 = .single() found no row — the normal "no profile" case. Any
     // OTHER error is unexpected and worth surfacing server-side: in particular a
@@ -148,47 +147,6 @@ export function isFeatureEnabled(
   return row ? row.enabled : (FEATURE_DEFAULTS[key] ?? false);
 }
 
-/**
- * SEC-83 — best-effort suspension lookup, used ONLY on the v1 (ACCESS_MODEL_V2
- * off) path where profileForUser's prod-safe legacy select deliberately omits
- * `is_suspended` (the KAN-328 guard pins that select to `id, age_status` so an
- * un-migrated env never references a missing column). We read the single column
- * on its own so the flag-independent suspension gate can still fire on v1.
- *
- * DEGRADE-SAFE: if the column is absent (env predates the KAN-327 migration —
- * e.g. production today), Postgres returns 42703 undefined_column. We cannot
- * enforce suspension where there is no suspension data, so we return false
- * (matching the pre-SEC-83 prod behaviour — no regression) and warn, rather than
- * erroring every gated call. Any other lookup error also degrades to
- * not-suspended: denying all callers on a transient DB blip would be a worse
- * outage than the narrow suspended-actor gap this closes. Once the KAN-327
- * column lands in an env, the gate becomes fully active there automatically.
- */
-async function callerIsSuspended(profileId: string): Promise<boolean> {
-  const sb = getSupabase();
-  const { data, error } = await sb
-    .from('profiles')
-    .select('is_suspended')
-    .eq('id', profileId)
-    .single();
-  if (error || !data) {
-    if (error?.code === '42703') {
-      console.warn(
-        '[mcp][feature-entitlements] is_suspended column absent on this env ' +
-          '(pre-KAN-327 schema) — flag-independent suspension gate INACTIVE here ' +
-          'until the column lands.',
-      );
-    } else if (error && error.code !== 'PGRST116') {
-      console.error(
-        '[mcp][feature-entitlements] suspension lookup failed:',
-        error.code,
-        error.message,
-      );
-    }
-    return false;
-  }
-  return (data as { is_suspended?: boolean }).is_suspended === true;
-}
 
 /**
  * Enforce access for a gated tool: the flag-independent suspension refusal
@@ -199,21 +157,20 @@ export async function requireFeatures(userId: string, keys: string[]): Promise<v
   const prof = await profileForUser(userId);
   if (!prof) throw new Error('No profile found for this user');
 
-  const v2 = accessModelV2Enabled();
-
-  // SEC-83 — the suspension refusal is FLAG-INDEPENDENT. A suspended (formerly
-  // live) caller keeps their existing feature_entitlements rows, so under v1
-  // (ACCESS_MODEL_V2 off — the documented prod config) the v2 service gate below
-  // is skipped and a suspended abuser could still call every write/convene tool:
-  // edit a published profile, send Convene invites, drain the queue. Refuse a
-  // suspended caller regardless of the flag, BEFORE the v2 gate and the feature
-  // read. Under v2 prof.is_suspended is authoritative (selected in profileForUser);
-  // under v1 the legacy select omits the column (prod-safe — prod's profiles
-  // table predates KAN-327), so we do a best-effort standalone lookup that
-  // degrades to not-suspended on an un-migrated schema (see callerIsSuspended)
-  // rather than erroring every gated call.
-  const suspended = v2 ? prof.is_suspended : await callerIsSuspended(prof.id);
-  if (suspended) {
+  // SEC-83 — the suspension refusal, now unconditional and authoritative.
+  //
+  // It used to be flag-dependent: under v1 (the DEFAULT, and the documented prod
+  // config) the profile read omitted is_suspended, so a SECOND query
+  // (callerIsSuspended) did a best-effort lookup that DEGRADED TO NOT-SUSPENDED
+  // on any error. A suspended caller keeps their existing feature_entitlements
+  // rows, so that fail-open meant a suspended abuser could still call every
+  // write and Convene tool: edit a published profile, send invites, drain the
+  // queue.
+  //
+  // With every environment migrated there is no un-migrated schema to degrade
+  // for, so prof.is_suspended is authoritative, the second query is gone, and
+  // there is no path on which suspension is skipped.
+  if (prof.is_suspended) {
     throw new Error(
       'Your Lyra account is suspended. Contact the Lyra team if you think this is a mistake.',
     );
@@ -222,7 +179,7 @@ export async function requireFeatures(userId: string, keys: string[]): Promise<v
   // KAN-328 service gate — GUI parity: only live, non-suspended accounts may use
   // gated MCP tools. Enforced before any feature check so waitlist/not_applied/
   // suspended callers are blocked outright.
-  if (v2 && !hasLiveAccess(prof)) {
+  if (!hasLiveAccess(prof)) {
     throw new Error(accessDenyMessage(prof));
   }
 
@@ -233,13 +190,17 @@ export async function requireFeatures(userId: string, keys: string[]): Promise<v
     .eq('profile_id', prof.id);
   const rows = (data ?? []) as { feature_key: string; enabled: boolean }[];
   for (const k of keys) {
-    // v2 (option 3): GA features default on; TEST features default OFF and need
-    // an explicit entitlement row — no access_tier tier-default (GUI parity).
-    // v1: flat FEATURE_DEFAULTS. An explicit entitlement row wins either way.
-    const enabled =
-      v2 && isFeatureKey(k)
-        ? resolveFeature(rows, k as FeatureKey)
-        : isFeatureEnabled(rows, k);
+    // GA features default ON; TEST features default OFF and need an explicit
+    // entitlement row — no access_tier tier-default, matching the GUI. An
+    // explicit entitlement row wins either way.
+    //
+    // The flag-gated fallback to flat FEATURE_DEFAULTS is gone with the rest of
+    // v1: it applied a DIFFERENT default set to the same caller depending on an
+    // env var, which is precisely the kind of divergence that made SEC-83 hard
+    // to reason about in the first place.
+    const enabled = isFeatureKey(k)
+      ? resolveFeature(rows, k as FeatureKey)
+      : isFeatureEnabled(rows, k);
     if (!enabled) {
       throw new Error(DENY_MESSAGE[k] ?? `The "${k}" feature is not enabled for your account.`);
     }
