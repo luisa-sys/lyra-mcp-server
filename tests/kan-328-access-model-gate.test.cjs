@@ -24,6 +24,17 @@ const read = (f) => fs.readFileSync(path.join(SRC, f), 'utf8');
 const registry = read('feature-registry.ts');
 const entitlements = read('feature-entitlements.ts');
 
+// Comments stripped before any NEGATIVE assertion. feature-entitlements.ts now
+// documents what the v1 retirement removed — and names ACCESS_MODEL_V2 and
+// callerIsSuspended while doing so — so a `not.toMatch` against raw source is
+// satisfied by the explanation rather than the code. Same comment-shadowing
+// trap as CTL-039, met from the opposite direction: there a comment made a
+// positive assertion pass, here it makes a negative one fail.
+const entitlementsCode = entitlements
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^[ \t]*\/\/.*$/gm, '');
+
+
 describe('KAN-328: feature-registry tier model', () => {
   test('GA tier = media_uploads + discovery', () => {
     expect(registry).toMatch(/media_uploads:\s*['"]GA['"]/);
@@ -63,7 +74,17 @@ describe('KAN-328: feature-registry tier model', () => {
 describe('KAN-328: feature-entitlements access gate', () => {
   test('new behaviour is gated behind the ACCESS_MODEL_V2 env flag', () => {
     expect(entitlements).toMatch(/ACCESS_MODEL_V2\s*===\s*['"]true['"]/);
-    expect(entitlements).toMatch(/function accessModelV2Enabled/);
+    // REPOINTED (KAN-415 D5, 2026-08-10). This asserted the FLAG EXISTED.
+    // The flag is retired: its only purpose was keeping the new columns
+    // optional while prod's `profiles` predated KAN-327, and all three
+    // Supabase projects now carry user_status/access_tier/is_suspended/
+    // age_status, NOT NULL (verified).
+    //
+    // Asserting the gate is UNCONDITIONAL is strictly stronger than asserting
+    // a flag exists to switch it on. The original defect was never a missing
+    // control — it was a control that could be SKIPPED.
+    expect(entitlementsCode).not.toMatch(/accessModelV2Enabled/);
+    expect(entitlementsCode).not.toMatch(/ACCESS_MODEL_V2/);
   });
 
   test('profileForUser reads the NEW columns only under the flag (prod-safe conditional select)', () => {
@@ -73,11 +94,14 @@ describe('KAN-328: feature-entitlements access gate', () => {
     expect(entitlements).toMatch(
       /['"]id,\s*age_status,\s*user_status,\s*access_tier,\s*is_suspended['"]/,
     );
-    expect(entitlements).toMatch(/['"]id,\s*age_status['"]/);
+    // REPOINTED. The narrow `id, age_status` select WAS the fail-open: it left
+    // is_suspended undefined, which read as not-suspended. One read now, always
+    // including it — asserted on line 74 above.
+    expect(entitlementsCode).not.toMatch(/callerIsSuspended/);
     // The new-column select must be on the TRUE branch of the flag check, so an
     // un-migrated env only ever runs the legacy `id, age_status` select.
     expect(entitlements).toMatch(
-      /accessModelV2Enabled\(\)[\s\S]{0,120}?\.select\(\s*['"]id, age_status, user_status, access_tier, is_suspended['"]/,
+      /\.select\(\s*['"]id, age_status, user_status, access_tier, is_suspended['"]/,
     );
   });
 
@@ -87,7 +111,8 @@ describe('KAN-328: feature-entitlements access gate', () => {
     // would silently let waitlist/suspended callers through. Pin the throw to the
     // gate so a gutted body fails this test.
     expect(entitlements).toMatch(
-      /if\s*\(\s*v2\s*&&\s*!hasLiveAccess\(prof\)\s*\)\s*\{\s*throw new Error\(accessDenyMessage\(prof\)\)\s*;?\s*\}/,
+      // REPOINTED. `v2 &&` was the skip.
+      /if\s*\(\s*!hasLiveAccess\(prof\)\s*\)\s*\{\s*throw new Error\(accessDenyMessage\(prof\)\)\s*;?\s*\}/,
     );
     // accessDenyMessage must actually distinguish suspended / waitlist reasons.
     expect(entitlements).toMatch(/accessDenyMessage\s*\(/);
@@ -104,7 +129,7 @@ describe('KAN-328: feature-entitlements access gate', () => {
     // Option 3: resolveFeature is called WITHOUT access_tier — test features need
     // an explicit entitlement row; the tier no longer grants them (GUI parity).
     expect(entitlements).toMatch(/resolveFeature\(rows,\s*k\s+as\s+FeatureKey\)/);
-    expect(entitlements).not.toMatch(/resolveFeature\([^)]*prof\.access_tier/);
+    expect(entitlementsCode).not.toMatch(/resolveFeature\([^)]*prof\.access_tier/);
   });
 
   test('the legacy v1 path (flat defaults) is retained for ACCESS_MODEL_V2=OFF', () => {
