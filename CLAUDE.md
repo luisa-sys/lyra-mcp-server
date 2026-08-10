@@ -76,34 +76,21 @@ Reverse for rollback: web first (Vercel revert), then MCP (Railway redeploy of p
 - Railway auto-deploys from `main` branch via the Railway GitHub App
 - Push to main only after tests pass
 - Production MCP server points to production Supabase; dev MCP server points to dev Supabase (see Gotcha #6)
-- Current test floor: **734 tests** (44 suites). **Measured 2026-08-09** via `npx tsc && npm test` on `main` `3a6a1ea`, during the Weekly Health + Regression routine — matches the figure the `luisa-sys/lyra` repo's own `CLAUDE.md` already cited for this repo, so the two are now in sync. Re-measure and update this line whenever it drifts — a floor far below reality (this one was **217/13**, over 3x stale) cannot detect a regression that deletes hundreds of tests. A prior fix (PR [#126](https://github.com/luisa-sys/lyra-mcp-server/pull/126), 2026-07-24, reporting 638/41) was opened but never merged and is now itself stale — superseded by this line. Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
+- Current test floor: **734 tests** (44 suites). **Measured 2026-08-09** via `npx tsc && npm test` on `main` `3a6a1ea`, during the Weekly Health + Regression routine — matches the figure the `luisa-sys/lyra` repo's own `CLAUDE.md` already cites for this repo, so the two are now in sync. Re-measure and update this line whenever it drifts — a floor far below reality (this one was **217/13**, over 3x stale) cannot detect a regression that deletes hundreds of tests. A prior fix (PR [#126](https://github.com/luisa-sys/lyra-mcp-server/pull/126), 2026-07-24, reporting 638/41) was opened but never merged and is now itself stale — superseded by this line. Note: the `MCP Server - Project Structure > compiled output exists` test requires `npx tsc` to have run first (it asserts `dist/index.js` exists). CI's "TypeScript build" step satisfies this; locally you must `npx tsc` before `npm test` or that one test fails.
 
-### `ACCESS_MODEL_V2` — schema-gated rollout (KAN-328) — set per-service, NOT in code
+### `ACCESS_MODEL_V2` — retired (SEC-83, 2026-08-10)
 
-Both Railway services deploy the SAME `main` code, so an environment flag — not the
-branch — decides whether the new access model is active. `ACCESS_MODEL_V2=true` makes
-gated tools require the caller to be `user_status='live'` AND not suspended, and switches
-per-feature defaults to the `access_tier` tier model (test features on for `beta`, off for
-`prod`; GA features always on). Default (unset/false) preserves the legacy KAN-317
-behaviour and reads ONLY `id, age_status` from `profiles`.
+**This flag no longer exists in code.** The dual v1/v2 access-model path (KAN-328, originally shipped 2026-06-24) was fully retired by SEC-83 (commit `1d6bc96c`, PR #147, merged 2026-08-10).
 
-**Critical ordering — never turn the flag on before the columns exist.** The flag makes the
-server read `profiles.user_status` / `access_tier` / `is_suspended`. A `profiles` table
-without those columns will error every gated tool call. The KAN-327 migration adds them.
+**Why it went:** the flag's original justification was that prod's `profiles` table might predate the KAN-327 migration (no `user_status`/`access_tier`/`is_suspended` columns yet). Verified 2026-08-10 against all three Supabase projects — dev, staging and prod each already carry all three columns, all NOT NULL. The branch was protecting against a schema that no longer exists anywhere.
 
-1. Dev Supabase already has the columns → set `ACCESS_MODEL_V2=true` on **lyra-mcp-dev**, redeploy, verify.
-2. Production Supabase gets the columns only when the web team promotes the KAN-327 migration to prod. Set `ACCESS_MODEL_V2=true` on **lyra-mcp-server** ONLY AFTER that. Until then leave it off (prod keeps current behaviour, safely).
-3. The GUI's `registry.ts` must adopt the same tier model for true parity (parent epic KAN-326). The flag is a transition mechanism — removable once prod is migrated and the legacy columns are dropped (KAN-326 Phase C).
+The previous partial fix (2026-07-26) only made the **suspension** half flag-independent — the `user_status='live'` service gate still required `ACCESS_MODEL_V2=true`, and the suspension fallback lookup (`callerIsSuspended`) could still silently degrade to not-suspended on any error. Correct in direction, still fail-open on the live path. SEC-83's 2026-08-10 close-out deletes that fallback entirely:
 
-**SEC-83 — the suspension refusal is now FLAG-INDEPENDENT.** A suspended caller is
-refused on every gated write/convene tool regardless of `ACCESS_MODEL_V2`. Under v2,
-`profileForUser` already selects `is_suspended`; under v1 the legacy select still omits
-it (prod-safe), so `requireFeatures` does a best-effort standalone `is_suspended` lookup
-(`callerIsSuspended`) that DEGRADES to not-suspended — with a `console.warn` — on any env
-whose `profiles` table predates the KAN-327 column, rather than erroring every call. So on
-prod today the gate is inert-but-safe; it activates automatically the moment the KAN-327
-column lands. Only the *suspension* half is unconditional — the live/waitlist service gate
-(`hasLiveAccess`) stays behind the flag.
+- One query, always selecting `user_status`, `access_tier`, and `is_suspended` -- no flag check, no second lookup.
+- The service gate (`user_status='live'`) and the suspension refusal are now the same unconditional check, on every environment.
+- The KAN-328 test-vs-GA feature-tier model (`feature_entitlements`, `tierDefault()`) is **unchanged** -- only the user-status/suspension service gate in front of it was removed.
+
+**If `ACCESS_MODEL_V2` is still set on either Railway service, it does nothing.** Should be unset on both `lyra-mcp-server` and `lyra-mcp-dev` for clarity, but leaving it is harmless. Mirrored on Confluence: MCP Server & Tools page (space TWC, pageId 19955714).
 
 ### Railway settings — DO NOT CHANGE WITHOUT READING BUGS-18
 
