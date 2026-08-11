@@ -1,7 +1,7 @@
 /**
  * KAN-328 — feature registry for the MCP server.
  *
- * Mirror of the web app's `lyra/src/lib/features/registry.ts`, EXTENDED with the
+ * Mirror of the web app's `lyra/src/modules/features/registry.ts`, EXTENDED with the
  * access-model-v2 feature TIER so the MCP server and the GUI resolve "is feature
  * X enabled for user Y" identically (one source of truth — no MCP-only access
  * path). Pure module: constants + pure helpers, NO I/O, so the gate logic is
