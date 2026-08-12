@@ -1,7 +1,7 @@
 /**
  * KAN-242 (part of KAN-63 Tier 2): policy wrapper around `content-moderation`.
  *
- * Ported from the web-app's `src/lib/moderation-policy.ts` (KAN-241).
+ * Ported from the web-app's `src/modules/contracts/moderation-policy.ts` (KAN-241).
  * Same semantics, same error-string discipline (category-only — no
  * wordlist enumeration) so MCP and web-app users see consistent rejection
  * messages.

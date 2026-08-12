@@ -1,7 +1,7 @@
 /**
  * KAN-244 (KAN-63 Tier 2-A audit trail) — MCP-side moderation audit recorder.
  *
- * Mirror of the web-app `src/lib/moderation-audit.ts`. Wraps
+ * Mirror of the web-app `src/modules/audit/moderation-audit.ts`. Wraps
  * `checkModeration` so callers keep their existing `if (!mod.ok) return
  * errorResponse(mod.error)` flow AND get a row written to
  * `public.content_moderation_flags` whenever the moderator flags a
