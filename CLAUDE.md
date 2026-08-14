@@ -32,7 +32,20 @@ When in doubt, prefer a worktree. Disk is cheap; mixed-feature PRs that ship con
 All work must be tracked in Jira. **KAN** for design/deployment, **BUGS** for bug tracking, and **SEC** (Security & Risk — team-managed) for all security and risk findings: vulnerabilities, data-protection/compliance, ops-resilience and governance. Route any security or risk-audit work to **SEC**, not KAN/BUGS.
 
 - The second-line **Lyra Risk Register** (Confluence space TWC) is the index of findings; the Jira epic **SEC-1** ("2026-06 Second-line Risk & Security Audit") is their tracking home.
-- **SEC transition IDs** (for `transitionJiraIssue`): `11` = To Do, `21` = In Progress, `31` = Done. (cf. KAN `21`/`41`, BUGS `21`/`31`/`41`.)
+- **Transition IDs** (for `transitionJiraIssue`) — ⚠️ **they differ per project, and a wrong id fails SILENTLY**:
+
+  | project | To Do | In Progress | In Review | Done |
+  |---|---|---|---|---|
+  | **SEC** | `11` | `21` | — | `31` |
+  | **BUGS** | `21` | `31` | — | `41` |
+  | **KAN** | `11` | `21` | `31` | `41` |
+
+  **Verify every transition by reading the status back.** `transitionJiraIssue` returns HTTP
+  success for an id that is valid-but-not-the-one-you-meant, so passing KAN `21` to a ticket
+  that is already In Progress transitions In Progress → In Progress and changes nothing. No
+  error, no warning, and the ticket silently stays where it was. Corrected 2026-08-14, after
+  this line's previous text (`cf. KAN 21/41`) caused exactly that no-op during the backlog
+  audit — `21` is KAN's **In Progress**, not its To Do.
 
 Every KAN/SEC Task/Story description MUST include all six sections:
 
