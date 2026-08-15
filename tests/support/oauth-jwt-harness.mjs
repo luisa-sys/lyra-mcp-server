@@ -37,6 +37,37 @@
 import http from 'node:http';
 import { SignJWT } from 'jose';
 
+/**
+ * ⚠️ WebSocket shim — required to run on Node 20, and it surfaced a real gap.
+ *
+ * `createClient()` builds a RealtimeClient eagerly, and `@supabase/realtime-js`
+ * throws `Node.js detected but native WebSocket not found` unless a WebSocket
+ * constructor is global — which Node only provides unflagged from **22**.
+ * CI (`test.yml`) pins **node-version: '20'**, so this harness passed locally
+ * on Node 22 and failed in CI. It is the first test in this repo to construct a
+ * real Supabase client, which is why nothing had surfaced it before.
+ *
+ * That divergence is a finding in its own right and is NOT fixed here: nothing
+ * declares `engines` and nothing pins Railway's runtime, so production runs on
+ * whatever Railway defaults to — and if that is ever Node 20, `getSupabase()`
+ * throws on the FIRST authenticated tool call. Raised separately; bumping CI to
+ * 22 would change the environment all 45 suites execute in and needs sign-off.
+ *
+ * The stub is never connected to. Realtime is not used by this code path at
+ * all — only PostgREST over HTTP — so a constructor that exists and is never
+ * invoked is a faithful stand-in, not a behaviour change. Defined only when
+ * absent, so on Node 22 the native implementation is still what runs.
+ */
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = class NeverConnectedWebSocket {
+    constructor() {
+      throw new Error(
+        'oauth-jwt-harness: realtime WebSocket was actually opened — this code path should only speak PostgREST over HTTP'
+      );
+    }
+  };
+}
+
 const scenario = JSON.parse(process.argv[2] ?? '{}');
 
 const SECRET = '0'.repeat(32);
