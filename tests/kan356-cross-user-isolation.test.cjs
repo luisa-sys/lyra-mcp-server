@@ -129,6 +129,10 @@ describe('KAN-356 criterion 1+2 — lyra_list_my_contacts', () => {
     const run = callTool('lyra_list_my_contacts', 'B', {});
     expect(run.payload.count).toBe(1);
     expect(run.payload.contacts.map((c) => c.display_name)).toEqual(['B-CONTACT-BEA']);
+    // Assert there IS a response before asserting what is absent from it: an
+    // empty string contains nothing, so a broken harness would satisfy every
+    // `not.toContain` below (failure mode 3's cousin).
+    expect(run.responseText.length).toBeGreaterThan(0);
     for (const secret of run.ids.A_ONLY_STRINGS) {
       expect(run.responseText).not.toContain(secret);
     }
@@ -195,6 +199,10 @@ describe('KAN-356 criterion 1 — the child tables the static guard cannot verif
 
   test('B receives NO child row of A’s gathering', () => {
     const run = callTool('lyra_get_gathering', 'B', { gathering_id: GATHERING_A });
+    // Assert there IS a response before asserting what is absent from it: an
+    // empty string contains nothing, so a broken harness would satisfy every
+    // `not.toContain` below (failure mode 3's cousin).
+    expect(run.responseText.length).toBeGreaterThan(0);
     for (const secret of run.ids.A_ONLY_STRINGS) {
       expect(run.responseText).not.toContain(secret);
     }
@@ -229,6 +237,10 @@ describe('KAN-356 criterion 1+2 — lyra_get_my_calendar_busy_times', () => {
     // connection at all. If the owner filter were dropped, B would find A's
     // row and this call would appear.
     expect(run.observed.rpcCalls).toEqual([]);
+    // Assert there IS a response before asserting what is absent from it: an
+    // empty string contains nothing, so a broken harness would satisfy every
+    // `not.toContain` below (failure mode 3's cousin).
+    expect(run.responseText.length).toBeGreaterThan(0);
     for (const secret of run.ids.A_ONLY_STRINGS) {
       expect(run.responseText).not.toContain(secret);
     }
