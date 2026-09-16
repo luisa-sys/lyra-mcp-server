@@ -20,22 +20,22 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@sentry/node": "^10.59.0",
-    "@supabase/supabase-js": "^2.110.7",
+    "@sentry/node": "^10.74.0",
+    "@supabase/supabase-js": "^2.116.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.6.0",
-    "jose": "^6.2.4",
-    "zod": "^4.4.3"
+    "express-rate-limit": "^8.7.0",
+    "jose": "^6.2.12",
+    "zod": "^4.6.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.2",
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.1.1",
-    "jest": "^30.4.2",
-    "ts-jest": "^29.4.9",
+    "@types/node": "^26.5.1",
+    "jest": "^30.5.1",
+    "ts-jest": "^29.4.12",
     "typescript": "^5.8.3"
   }
 }

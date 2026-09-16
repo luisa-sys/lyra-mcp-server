@@ -14,7 +14,7 @@
  * nesting / interleaving. Convergence is fast: each iteration strictly shrinks
  * the string (or terminates), and callers bound the input via `maxLength`.
  *
- * Mirrors the web app's `src/lib/sanitise.ts` `stripHtml` so both surfaces
+ * Mirrors the web app's `src/modules/guards/sanitise.ts` `stripHtml` so both surfaces
  * sanitise free-text identically (SEC-59 convergence leg).
  */
 export function stripHtml(input: string): string {
