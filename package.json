@@ -23,7 +23,7 @@
     "@sentry/node": "^11.0.0",
     "@supabase/supabase-js": "^2.117.2",
     "cors": "^2.8.6",
-    "dotenv": "^18.0.3",
+    "dotenv": "^18.0.5",
     "express": "^5.1.0",
     "express-rate-limit": "^8.7.0",
     "jose": "^6.2.12",
@@ -33,7 +33,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.2",
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.4",
     "jest": "^30.5.2",
     "ts-jest": "^29.4.14",
     "typescript": "^5.8.3"
