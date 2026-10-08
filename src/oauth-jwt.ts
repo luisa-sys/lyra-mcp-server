@@ -10,8 +10,13 @@
  * Algorithm-confusion safe: each jwtVerify pins a SINGLE-element algorithms
  * allow-list against its own key — never a combined list.
  *
- * Optional revocation check: if OAUTH_REVOCATION_CHECK=1, look up the jti in
- * oauth_access_tokens and reject if revoked_at is non-null.
+ * Revocation check (SEC-46 Phase A): DEFAULT ON. The jti is looked up in
+ * oauth_access_tokens and the token rejected if revoked_at is non-null, if the
+ * row is absent, or if the lookup itself fails. `OAUTH_REVOCATION_CHECK='0'` is
+ * a deliberate kill-switch, not a configuration knob.
+ *
+ * Audience check (SEC-46 Phase B): OBSERVE-ONLY until `OAUTH_AUDIENCE_CHECK='1'`.
+ * Ships inert on purpose — see the note above `audienceEnforced()`.
  */
 import { jwtVerify, createRemoteJWKSet } from 'jose';
 import { getSupabase } from './supabase.js';
@@ -63,8 +68,59 @@ export interface OAuthValidationResult {
 }
 export interface OAuthValidationError {
   ok: false;
-  error: 'invalid_token' | 'expired' | 'revoked' | 'signature' | 'malformed';
+  error: 'invalid_token' | 'expired' | 'revoked' | 'signature' | 'malformed' | 'invalid_audience';
   detail?: string;
+}
+
+/**
+ * SEC-46 Phase A — revocation is ON unless explicitly switched off.
+ *
+ * This was `=== '1'`, i.e. opt-in, and the variable was set on NONE of the
+ * three Railway services. So `revoked_at` was written by /oauth/revoke and by
+ * refresh-replay `revokeFamily()` and read by NOBODY: revocation bit only at
+ * token expiry, up to an hour later. "Revoke access" was inert.
+ *
+ * Inverted to opt-out. `'0'` remains as a kill-switch because this check puts a
+ * database read on every authenticated tool call and fails closed (below), so
+ * there must be a way to shed that dependency in an incident without a deploy.
+ * Set it explicitly per service rather than relying on this default, so the two
+ * environments can be reasoned about independently.
+ */
+function revocationCheckEnabled(): boolean {
+  return process.env.OAUTH_REVOCATION_CHECK !== '0';
+}
+
+/**
+ * SEC-46 Phase B — the canonical resource URI(s) this server will accept in
+ * `aud`, tolerating a trailing slash and the bare-origin form.
+ *
+ * Reuses MCP_RESOURCE_URL, which already exists for the RFC 9728 protected
+ * resource metadata document — deliberately NOT a second name for the same
+ * fact. Note this promotes that variable from a metadata string into an
+ * authorization decision, so it must be correct per service.
+ */
+function acceptedAudiences(): string[] {
+  const res = (process.env.MCP_RESOURCE_URL || 'https://mcp.checklyra.com/mcp').replace(/\/$/, '');
+  return [res, res.replace(/\/mcp$/, '')];
+}
+
+/**
+ * SEC-46 Phase B — audience enforcement is OFF until `OAUTH_AUDIENCE_CHECK='1'`.
+ *
+ * ⚠️ This asymmetry with revocation (default ON) is deliberate, and it is the
+ * point of the phase split. The authorization server currently mints
+ * `aud = client_id`, not `aud = <resource>`. Enforcing today would 401 every
+ * existing MCP connector — so this ships as an OBSERVATION that logs mismatches,
+ * and is flipped only once the AS is issuing resource-bound tokens and the logs
+ * have been quiet for at least one access-token TTL.
+ *
+ * That is also why the check is hand-rolled rather than passed to `jwtVerify`
+ * as its `audience` option: jose THROWS on mismatch, which gives no way to
+ * measure the blast radius before committing to it. The measurement is the
+ * de-risking.
+ */
+function audienceEnforced(): boolean {
+  return process.env.OAUTH_AUDIENCE_CHECK === '1';
 }
 
 function classifyError(e: unknown): OAuthValidationError {
@@ -108,16 +164,54 @@ export async function validateOAuthAccessToken(
   if (typeof payload.scope !== 'string') return { ok: false, error: 'malformed', detail: 'missing scope' };
   if (typeof payload.client_id !== 'string') return { ok: false, error: 'malformed', detail: 'missing client_id' };
 
-  // Optional revocation check.
-  if (process.env.OAUTH_REVOCATION_CHECK === '1') {
+  // SEC-46 Phase B — audience. Observe-only until OAUTH_AUDIENCE_CHECK='1'.
+  // `aud` may legally be a string or an array (RFC 7519 §4.1.3), so normalise
+  // both. Compared by EXACT match after a trailing-slash strip — never by
+  // prefix or substring, or `https://mcp.checklyra.com/mcp.evil.test` would
+  // satisfy it.
+  const auds = Array.isArray(payload.aud)
+    ? (payload.aud as unknown[]).filter((a): a is string => typeof a === 'string')
+    : typeof payload.aud === 'string'
+      ? [payload.aud]
+      : [];
+  if (!auds.some((a) => acceptedAudiences().includes(a.replace(/\/$/, '')))) {
+    if (audienceEnforced()) {
+      return { ok: false, error: 'invalid_audience', detail: 'aud not for this resource' };
+    }
+    console.warn(
+      `[oauth][SEC-46] audience mismatch (observe-only) aud=${auds.join(',') || '(none)'} expected=${acceptedAudiences()[0]}`
+    );
+  }
+
+  // SEC-46 Phase A — revocation. Default ON; '0' is a deliberate kill-switch.
+  if (revocationCheckEnabled()) {
     const sb = getSupabase();
-    const { data } = await sb
+    // PK lookup: oauth_access_tokens_pkey is on (jti). No new index needed.
+    const { data, error } = await sb
       .from('oauth_access_tokens')
       .select('revoked_at')
       .eq('jti', payload.jti as string)
       .maybeSingle();
-    const row = data as { revoked_at: string | null } | null;
-    if (row?.revoked_at) {
+
+    // FAIL CLOSED. Previously this destructured `{ data }` alone and threw the
+    // error away, so a Supabase blip returned data=null and was read as "not
+    // revoked" — a silent fail-open on the ONLY containment control we have,
+    // with nothing logged. A revocation check that degrades to "allow" is inert
+    // exactly when it matters most.
+    if (error) {
+      console.error('[oauth][SEC-46] revocation lookup failed — failing closed:', error.message);
+      return { ok: false, error: 'revoked', detail: 'revocation status unavailable' };
+    }
+
+    // Unknown jti is a REFUSAL, not a pass. Issuance writes the registry row in
+    // the same request that signs the token (the AS throws before returning the
+    // JWT if that insert fails) and nothing purges the table, so a missing row
+    // means the token was not minted by this system.
+    if (!data) {
+      return { ok: false, error: 'revoked', detail: 'token not in registry' };
+    }
+
+    if ((data as { revoked_at: string | null }).revoked_at) {
       return { ok: false, error: 'revoked', detail: 'token revoked' };
     }
   }
