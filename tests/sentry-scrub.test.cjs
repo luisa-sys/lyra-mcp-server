@@ -6,7 +6,7 @@
  * port guards in this directory (e.g. `moderation-policy.test.cjs`,
  * `mcp-visibility-guard.test.cjs`). The *behavioural* coverage for the scrub
  * logic lives in the web repo at `tests/unit/sentry-scrub.test.ts` — the file
- * here is a behaviour-equivalent port of `lyra/src/lib/sentry-scrub.ts`, so
+ * here is a behaviour-equivalent port of `lyra/src/modules/observability/sentry-scrub.ts`, so
  * this guard verifies the port is present, complete, and wired into init.
  */
 

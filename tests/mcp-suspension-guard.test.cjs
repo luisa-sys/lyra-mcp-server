@@ -13,6 +13,12 @@
  * filter, this test fails — preventing the regression from reaching
  * production.
  *
+ * SEC-85 — the scan was widened from `src/index.ts` only to also cover every
+ * `src/convene-*.ts` tool file. Convene profile reads (e.g. the availability
+ * fan-out and the link_contact validation) were previously outside guard
+ * scope, so a future convene refactor dropping the suspension filter would not
+ * have failed CI. Adding new convene files is auto-covered by the glob below.
+ *
  * If you intentionally need a `profiles` read WITHOUT the suspension
  * filter (e.g. an authenticated admin tool that wants to see suspended
  * profiles), add an explicit allow-list comment of the form:
@@ -26,11 +32,29 @@
 const fs = require('fs');
 const path = require('path');
 
-const indexPath = path.join(__dirname, '..', 'src', 'index.ts');
-const source = fs.readFileSync(indexPath, 'utf8');
-const lines = source.split('\n');
+const srcDir = path.join(__dirname, '..', 'src');
+const indexPath = path.join(srcDir, 'index.ts');
 
-function findProfilesReads() {
+// SEC-85: index.ts + every convene-*.ts tool file. NOTE: write-tools.ts is
+// deliberately NOT scanned here — its `profiles` operations are the caller's
+// own authenticated self-writes (`.eq('id', auth.profileId)`), a distinct
+// concern from read-leakage and governed by the SEC-83 suspended-actor guard.
+function scanFiles() {
+  const files = [indexPath];
+  for (const name of fs.readdirSync(srcDir).sort()) {
+    if (name.startsWith('convene-') && name.endsWith('.ts')) {
+      files.push(path.join(srcDir, name));
+    }
+  }
+  return files;
+}
+
+function loadFile(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  return { file, relPath: path.relative(path.join(__dirname, '..'), file), text, lines: text.split('\n') };
+}
+
+function findProfilesReads(lines) {
   const hits = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -47,7 +71,7 @@ function findProfilesReads() {
   return hits;
 }
 
-function findInnerJoinReads() {
+function findInnerJoinReads(lines) {
   // Catch `profiles!inner(...)` joins from OTHER tables (e.g.
   // `school_affiliations.profiles!inner(...)`) — these also need
   // `.eq('profiles.is_suspended', false)` so a suspended profile's
@@ -64,43 +88,52 @@ function findInnerJoinReads() {
   return hits;
 }
 
-function isAllowListed(lineIndex) {
+function isAllowListed(lines, lineIndex) {
   for (let j = Math.max(0, lineIndex - 3); j < lineIndex; j++) {
     if (/suspension-ok:/i.test(lines[j])) return true;
   }
   return false;
 }
 
-function nextSevenLines(lineIndex) {
+function nextSevenLines(lines, lineIndex) {
   return lines.slice(lineIndex, Math.min(lines.length, lineIndex + 8)).join('\n');
 }
 
-describe('BUGS-21 MCP suspension-filter regression guard', () => {
-  const directReads = findProfilesReads();
-  const innerJoinReads = findInnerJoinReads();
+const scanned = scanFiles().filter((f) => fs.existsSync(f)).map(loadFile);
 
-  test('source file is readable and contains profiles reads', () => {
-    expect(source.length).toBeGreaterThan(100);
-    expect(directReads.length).toBeGreaterThanOrEqual(5);
+describe('BUGS-21 MCP suspension-filter regression guard', () => {
+  const indexFile = scanned.find((s) => s.file === indexPath);
+
+  test('src/index.ts is readable and contains at least 5 profiles reads', () => {
+    expect(indexFile).toBeDefined();
+    expect(indexFile.text.length).toBeGreaterThan(100);
+    expect(findProfilesReads(indexFile.lines).length).toBeGreaterThanOrEqual(5);
+  });
+
+  test('convene tool files are included in the scan (SEC-85)', () => {
+    const conveneScanned = scanned.filter((s) => /convene-.*\.ts$/.test(s.file));
+    expect(conveneScanned.length).toBeGreaterThanOrEqual(5);
   });
 
   test('every direct `from("profiles")` read includes .eq("is_suspended", false)', () => {
     const unsafe = [];
-    for (const hit of directReads) {
-      if (isAllowListed(hit.lineIndex)) continue;
-      const block = nextSevenLines(hit.lineIndex);
-      const hasFilter = /\.eq\(\s*['"]is_suspended['"]\s*,\s*false\s*\)/.test(block);
-      if (!hasFilter) {
-        unsafe.push({
-          line: hit.lineNumber,
-          snippet: block.slice(0, 240).replace(/\n/g, ' '),
-        });
+    for (const src of scanned) {
+      for (const hit of findProfilesReads(src.lines)) {
+        if (isAllowListed(src.lines, hit.lineIndex)) continue;
+        const block = nextSevenLines(src.lines, hit.lineIndex);
+        const hasFilter = /\.eq\(\s*['"]is_suspended['"]\s*,\s*false\s*\)/.test(block);
+        if (!hasFilter) {
+          unsafe.push({
+            where: `${src.relPath}:${hit.lineNumber}`,
+            snippet: block.slice(0, 240).replace(/\n/g, ' '),
+          });
+        }
       }
     }
     if (unsafe.length > 0) {
       const msg =
-        'profiles reads WITHOUT is_suspended filter (BUGS-21):\n' +
-        unsafe.map((u) => `  line ${u.line}: ${u.snippet}…`).join('\n') +
+        'profiles reads WITHOUT is_suspended filter (BUGS-21 / SEC-85):\n' +
+        unsafe.map((u) => `  ${u.where}: ${u.snippet}…`).join('\n') +
         '\nAdd `.eq("is_suspended", false)` to each, OR add a `// suspension-ok: <reason>` comment if intentional.';
       throw new Error(msg);
     }
@@ -109,21 +142,23 @@ describe('BUGS-21 MCP suspension-filter regression guard', () => {
 
   test('every `profiles!inner(...)` join includes .eq("profiles.is_suspended", false)', () => {
     const unsafe = [];
-    for (const hit of innerJoinReads) {
-      if (isAllowListed(hit.lineIndex)) continue;
-      const block = nextSevenLines(hit.lineIndex);
-      const hasFilter = /\.eq\(\s*['"]profiles\.is_suspended['"]\s*,\s*false\s*\)/.test(block);
-      if (!hasFilter) {
-        unsafe.push({
-          line: hit.lineNumber,
-          snippet: block.slice(0, 240).replace(/\n/g, ' '),
-        });
+    for (const src of scanned) {
+      for (const hit of findInnerJoinReads(src.lines)) {
+        if (isAllowListed(src.lines, hit.lineIndex)) continue;
+        const block = nextSevenLines(src.lines, hit.lineIndex);
+        const hasFilter = /\.eq\(\s*['"]profiles\.is_suspended['"]\s*,\s*false\s*\)/.test(block);
+        if (!hasFilter) {
+          unsafe.push({
+            where: `${src.relPath}:${hit.lineNumber}`,
+            snippet: block.slice(0, 240).replace(/\n/g, ' '),
+          });
+        }
       }
     }
     if (unsafe.length > 0) {
       const msg =
-        'profiles!inner(...) joins WITHOUT suspension filter (BUGS-21):\n' +
-        unsafe.map((u) => `  line ${u.line}: ${u.snippet}…`).join('\n') +
+        'profiles!inner(...) joins WITHOUT suspension filter (BUGS-21 / SEC-85):\n' +
+        unsafe.map((u) => `  ${u.where}: ${u.snippet}…`).join('\n') +
         '\nAdd `.eq("profiles.is_suspended", false)` to each, OR add a `// suspension-ok: <reason>` comment if intentional.';
       throw new Error(msg);
     }
@@ -136,17 +171,60 @@ describe('BUGS-21 MCP suspension-filter regression guard', () => {
     // a bug.
     const offenders = [];
     const re = /\.eq\(\s*['"](?:profiles\.)?is_suspended['"]\s*,\s*true\s*\)/;
-    lines.forEach((line, idx) => {
-      if (re.test(line)) {
-        offenders.push({ line: idx + 1, snippet: line.trim() });
-      }
-    });
+    for (const src of scanned) {
+      src.lines.forEach((line, idx) => {
+        if (re.test(line)) {
+          offenders.push({ where: `${src.relPath}:${idx + 1}`, snippet: line.trim() });
+        }
+      });
+    }
     if (offenders.length > 0) {
       const msg =
         'is_suspended filter uses TRUE value (should be false):\n' +
-        offenders.map((o) => `  line ${o.line}: ${o.snippet}`).join('\n');
+        offenders.map((o) => `  ${o.where}: ${o.snippet}`).join('\n');
       throw new Error(msg);
     }
     expect(offenders.length).toBe(0);
+  });
+
+  // SEC-85 — negative meta-test. Proves the scan logic actually flags a
+  // `profiles` read that has had its suspension filter removed, so a real
+  // regression in any newly-scanned convene file would fail CI.
+  describe('guard actually flags a removed suspension filter (regression proof)', () => {
+    const badLines = [
+      "const { data } = await sb",
+      "  .from('profiles')",
+      "  .select('id, user_id')",
+      "  .in('id', linkedProfileIds);", // is_suspended filter removed
+    ];
+    const goodLines = [
+      "const { data } = await sb",
+      "  .from('profiles')",
+      "  .select('id, user_id')",
+      "  .in('id', linkedProfileIds)",
+      "  .eq('is_suspended', false);",
+    ];
+
+    test('an unfiltered profiles read is detected and NOT allow-listed', () => {
+      const hits = findProfilesReads(badLines);
+      expect(hits.length).toBe(1);
+      expect(isAllowListed(badLines, hits[0].lineIndex)).toBe(false);
+      const block = nextSevenLines(badLines, hits[0].lineIndex);
+      expect(/\.eq\(\s*['"]is_suspended['"]\s*,\s*false\s*\)/.test(block)).toBe(false);
+    });
+
+    test('the same read with the suspension filter restored passes', () => {
+      const hits = findProfilesReads(goodLines);
+      expect(hits.length).toBe(1);
+      const block = nextSevenLines(goodLines, hits[0].lineIndex);
+      expect(/\.eq\(\s*['"]is_suspended['"]\s*,\s*false\s*\)/.test(block)).toBe(true);
+    });
+
+    test('a suspension-ok comment exempts an intentional unfiltered read', () => {
+      const exempt = ['// suspension-ok: admin tool needs suspended rows (SEC-85)', ...badLines];
+      const hits = findProfilesReads(exempt);
+      expect(hits.length).toBe(1);
+      expect(isAllowListed(exempt, hits[0].lineIndex)).toBe(true);
+    });
   });
 });

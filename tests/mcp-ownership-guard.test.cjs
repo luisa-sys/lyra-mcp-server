@@ -66,6 +66,16 @@ const sourceFiles = [
   // KAN-307 — contact/tribe write tools touch contacts, tribes, tribe_members,
   // contact_methods. Statically enforce their ownership scoping too.
   path.join(__dirname, '..', 'src', 'convene-contact-tools.ts'),
+  // SEC-85 — the remaining Convene write-tool files contained owner-table
+  // reads (gatherings → host_user_id, venue_ratings → user_id) and child-table
+  // reads that were previously UNSCANNED by this guard. A future refactor that
+  // dropped an ownership filter in any of them would not have failed CI. All
+  // current reads were hand-verified correctly scoped when added here.
+  path.join(__dirname, '..', 'src', 'convene-gathering-tools.ts'),
+  path.join(__dirname, '..', 'src', 'convene-invite-tools.ts'),
+  path.join(__dirname, '..', 'src', 'convene-lifecycle-tools.ts'),
+  path.join(__dirname, '..', 'src', 'convene-recommend-tools.ts'),
+  path.join(__dirname, '..', 'src', 'convene-suggest-venues-tool.ts'),
 ];
 
 function loadSource(file) {
@@ -159,5 +169,65 @@ describe('MCP ownership-filter regression guard (KAN-205)', () => {
         }
       }
     }
+  });
+
+  // SEC-85 — negative meta-test. Drives the SAME helper functions the guard
+  // uses against synthetic in-memory source, proving that a `gatherings` read
+  // with the ownership filter REMOVED is actually detected as unsafe (and that
+  // the guard would fail CI on such a regression in any newly-scanned file).
+  describe('guard actually flags a removed ownership filter (regression proof)', () => {
+    function fakeSrc(code) {
+      return { file: '<synthetic>', text: code, lines: code.split('\n') };
+    }
+
+    test('a gatherings read WITHOUT .eq(host_user_id) and WITHOUT allow-list is flagged unsafe', () => {
+      const bad = fakeSrc(
+        [
+          "const { data } = await sb",
+          "  .from('gatherings')",
+          "  .select('id, status')",
+          "  .eq('id', input.gathering_id)", // note: no host_user_id filter
+          "  .maybeSingle();",
+        ].join('\n')
+      );
+      const hits = findFromOccurrences(bad, 'gatherings');
+      expect(hits.length).toBe(1);
+      expect(hasAllowList(bad, hits[0].lineIndex)).toBe(false);
+      expect(hasOwnershipFilter(bad, hits[0].lineIndex, 'host_user_id')).toBe(false);
+    });
+
+    test('the same read WITH .eq(host_user_id) is accepted', () => {
+      const good = fakeSrc(
+        [
+          "const { data } = await sb",
+          "  .from('gatherings')",
+          "  .select('id, status')",
+          "  .eq('id', input.gathering_id)",
+          "  .eq('host_user_id', userId)",
+          "  .maybeSingle();",
+        ].join('\n')
+      );
+      const hits = findFromOccurrences(good, 'gatherings');
+      expect(hits.length).toBe(1);
+      expect(hasOwnershipFilter(good, hits[0].lineIndex, 'host_user_id')).toBe(true);
+    });
+
+    test('a child-table read is accepted only with an ownership-ok comment', () => {
+      const withoutComment = fakeSrc(
+        ["const { data } = await sb", "  .from('gathering_invitees')", "  .eq('gathering_id', gid);"].join('\n')
+      );
+      const withComment = fakeSrc(
+        [
+          '// ownership-ok: scoped via gid (SEC-85)',
+          "const { data } = await sb",
+          "  .from('gathering_invitees')",
+          "  .eq('gathering_id', gid);",
+        ].join('\n')
+      );
+      const h1 = findFromOccurrences(withoutComment, 'gathering_invitees');
+      const h2 = findFromOccurrences(withComment, 'gathering_invitees');
+      expect(hasAllowList(withoutComment, h1[0].lineIndex)).toBe(false);
+      expect(hasAllowList(withComment, h2[0].lineIndex)).toBe(true);
+    });
   });
 });

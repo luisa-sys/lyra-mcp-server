@@ -107,6 +107,110 @@ describe('KAN-232 tool-call-log middleware', () => {
     });
   });
 
+  describe('BUGS-61 — status_code is populated from the real response', () => {
+    test('captures the response status code (res.statusCode)', () => {
+      // The historical defect: every mcp_tool_call_log row had status_code
+      // NULL because the insert fired on the way IN, before any response
+      // existed. The fix records on the way OUT and reads res.statusCode.
+      expect(SRC_MIDDLEWARE).toMatch(/statusCode:\s*res\.statusCode/);
+    });
+
+    test('records on the response finish event (not on request arrival)', () => {
+      expect(SRC_MIDDLEWARE).toMatch(/res\.once\(\s*['"]finish['"]\s*,/);
+    });
+
+    test('also records on client-abort (close) so aborted calls are not lost', () => {
+      expect(SRC_MIDDLEWARE).toMatch(/res\.once\(\s*['"]close['"]\s*,/);
+    });
+
+    test('the insert payload still writes status_code', () => {
+      expect(SRC_MIDDLEWARE).toMatch(/status_code:\s*rec\.statusCode/);
+    });
+
+    test('middleware now uses the response arg (not _res placeholder)', () => {
+      // The pre-fix signature ignored the response (`_res`); populating
+      // status_code requires actually reading from it.
+      expect(SRC_MIDDLEWARE).toMatch(/toolCallLogMiddleware\(\s*req:\s*Request,\s*res:\s*Response/);
+    });
+  });
+
+  describe('BUGS-61 — record-once-on-finish semantics (behavioural)', () => {
+    // Mirror of the real record-on-terminate closure in the middleware.
+    // The middleware is TS/ESM and this suite is CJS static-grep (no runtime
+    // DI seam — see KAN-356a), so we re-implement the exact closure here and
+    // exercise it against a real EventEmitter-backed fake response, matching
+    // the existing `extractIpStub` convention below.
+    const { EventEmitter } = require('events');
+
+    function attachRecorder(res, sink) {
+      let recorded = false;
+      const record = () => {
+        if (recorded) return;
+        recorded = true;
+        sink.push(res.statusCode);
+      };
+      res.once('finish', record);
+      res.once('close', record);
+    }
+
+    function fakeRes(statusCode) {
+      const res = new EventEmitter();
+      res.statusCode = statusCode;
+      return res;
+    }
+
+    test('success path → records status 200 when the response finishes', () => {
+      const sink = [];
+      const res = fakeRes(200);
+      attachRecorder(res, sink);
+      res.emit('finish');
+      expect(sink).toEqual([200]);
+    });
+
+    test('rate-limited path → records status 429', () => {
+      const sink = [];
+      const res = fakeRes(429);
+      attachRecorder(res, sink);
+      res.emit('finish');
+      expect(sink).toEqual([429]);
+    });
+
+    test('error path → records the real non-2xx code (e.g. 401)', () => {
+      const sink = [];
+      const res = fakeRes(401);
+      attachRecorder(res, sink);
+      res.emit('finish');
+      expect(sink).toEqual([401]);
+    });
+
+    test('never NULL — a concrete numeric code is always recorded', () => {
+      const sink = [];
+      const res = fakeRes(500);
+      attachRecorder(res, sink);
+      res.emit('finish');
+      expect(sink).toHaveLength(1);
+      expect(typeof sink[0]).toBe('number');
+      expect(sink[0]).not.toBeNull();
+    });
+
+    test('records exactly once even when both finish and close fire', () => {
+      const sink = [];
+      const res = fakeRes(200);
+      attachRecorder(res, sink);
+      res.emit('finish');
+      res.emit('close');
+      expect(sink).toEqual([200]);
+    });
+
+    test('client-abort (close, no finish) still records the status', () => {
+      const sink = [];
+      const res = fakeRes(499);
+      attachRecorder(res, sink);
+      res.emit('close');
+      expect(sink).toEqual([499]);
+    });
+  });
+
   describe('helper functions (unit)', () => {
     // Stand-in for what's tested — we re-implement the same small
     // helpers here to verify the logic. The real ones are in TS so

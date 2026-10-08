@@ -1,7 +1,7 @@
 /**
  * SEC-55: OAuth-secret & PII scrubbing for Sentry events + breadcrumbs.
  *
- * Behaviour-equivalent port of the web app's `src/lib/sentry-scrub.ts`
+ * Behaviour-equivalent port of the web app's `src/modules/observability/sentry-scrub.ts`
  * (luisa-sys/lyra). The logic is self-contained (no imports), so the two files
  * are kept byte-identical below the doc header — behavioural coverage lives in
  * the web repo's `tests/unit/sentry-scrub.test.ts`; the MCP side is guarded

@@ -138,6 +138,13 @@ describe('Convene contacts & tribes write tools — structure (KAN-307)', () => 
       expect(block).toMatch(/\.from\(['"]profiles['"]\)/);
       expect(block).toMatch(/is not published and cannot be linked/);
     });
+    test('SEC-85: link validation also filters out suspended profiles', () => {
+      // The profiles read in lyra_link_contact_profile must reject a
+      // suspended-but-published profile (parity with the profiles RLS
+      // suspension rule + the availability fan-out re-filter). `block` runs
+      // from the tool registration to EOF (link_contact is the last tool).
+      expect(block).toMatch(/\.from\(['"]profiles['"]\)[\s\S]*?\.eq\(['"]is_suspended['"],\s*false\)/);
+    });
     test('updates contacts filtered by owner_user_id (and supports unlink)', () => {
       expect(block).toMatch(/\.from\(['"]contacts['"]\)/);
       expect(block).toMatch(/\.update\(\{\s*linked_profile_id:/);

@@ -13,7 +13,15 @@
 
 const fs = require('fs');
 const path = require('path');
-const { SignJWT, jwtVerify } = require('jose');
+
+// jose v6 is ESM-only (no CommonJS build), so `require('jose')` throws
+// "SyntaxError: Unexpected token 'export'" from a .cjs test. Load it via a
+// dynamic import() — which works from CommonJS — in a top-level beforeAll,
+// before any test that calls signSample() / jwtVerify() runs. (BUGS-64)
+let SignJWT, jwtVerify;
+beforeAll(async () => {
+  ({ SignJWT, jwtVerify } = await import('jose'));
+});
 
 const TEST_SECRET = '0'.repeat(32);
 const TEST_ISSUER = 'https://dev.checklyra.com';

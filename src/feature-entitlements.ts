@@ -58,11 +58,6 @@ const DENY_MESSAGE: Record<string, string> = {
   convene: 'Convene is not enabled for your account yet.',
 };
 
-/** True when the new access model (user_status/access_tier gating) is active. */
-export function accessModelV2Enabled(): boolean {
-  return process.env.ACCESS_MODEL_V2 === 'true';
-}
-
 interface ProfileGate {
   id: string;
   age_status: string;
@@ -88,13 +83,17 @@ async function profileForUser(userId: string): Promise<ProfileGate | null> {
   // The v1 branch selects ONLY columns guaranteed to exist everywhere, so an
   // un-migrated `profiles` table (prod pre-KAN-327) never references a missing
   // column.
-  const { data, error } = accessModelV2Enabled()
-    ? await sb
-        .from('profiles')
-        .select('id, age_status, user_status, access_tier, is_suspended')
-        .eq('user_id', userId)
-        .single()
-    : await sb.from('profiles').select('id, age_status').eq('user_id', userId).single();
+  // ONE query, all columns, always. The v1 branch selected only `id,
+  // age_status` because prod's `profiles` predated KAN-327 — that is no longer
+  // true. Verified 2026-08-10 against all three Supabase projects: dev, staging
+  // and prod each have user_status, access_tier, is_suspended and age_status,
+  // all NOT NULL. The branch existed to protect against a schema that no longer
+  // exists anywhere.
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id, age_status, user_status, access_tier, is_suspended')
+    .eq('user_id', userId)
+    .single();
   if (error || !data) {
     // PGRST116 = .single() found no row — the normal "no profile" case. Any
     // OTHER error is unexpected and worth surfacing server-side: in particular a
@@ -148,20 +147,39 @@ export function isFeatureEnabled(
   return row ? row.enabled : (FEATURE_DEFAULTS[key] ?? false);
 }
 
+
 /**
- * Enforce access for a gated tool: (v2 only) the live/non-suspended service
- * gate, then the per-feature entitlement check. Throws a friendly error on deny.
+ * Enforce access for a gated tool: the flag-independent suspension refusal
+ * (SEC-83), then (v2 only) the live/waitlist service gate, then the per-feature
+ * entitlement check. Throws a friendly error on deny.
  */
 export async function requireFeatures(userId: string, keys: string[]): Promise<void> {
   const prof = await profileForUser(userId);
   if (!prof) throw new Error('No profile found for this user');
 
-  const v2 = accessModelV2Enabled();
+  // SEC-83 — the suspension refusal, now unconditional and authoritative.
+  //
+  // It used to be flag-dependent: under v1 (the DEFAULT, and the documented prod
+  // config) the profile read omitted is_suspended, so a SECOND query
+  // (callerIsSuspended) did a best-effort lookup that DEGRADED TO NOT-SUSPENDED
+  // on any error. A suspended caller keeps their existing feature_entitlements
+  // rows, so that fail-open meant a suspended abuser could still call every
+  // write and Convene tool: edit a published profile, send invites, drain the
+  // queue.
+  //
+  // With every environment migrated there is no un-migrated schema to degrade
+  // for, so prof.is_suspended is authoritative, the second query is gone, and
+  // there is no path on which suspension is skipped.
+  if (prof.is_suspended) {
+    throw new Error(
+      'Your Lyra account is suspended. Contact the Lyra team if you think this is a mistake.',
+    );
+  }
 
   // KAN-328 service gate — GUI parity: only live, non-suspended accounts may use
   // gated MCP tools. Enforced before any feature check so waitlist/not_applied/
   // suspended callers are blocked outright.
-  if (v2 && !hasLiveAccess(prof)) {
+  if (!hasLiveAccess(prof)) {
     throw new Error(accessDenyMessage(prof));
   }
 
@@ -172,31 +190,34 @@ export async function requireFeatures(userId: string, keys: string[]): Promise<v
     .eq('profile_id', prof.id);
   const rows = (data ?? []) as { feature_key: string; enabled: boolean }[];
   for (const k of keys) {
-    // v2 (option 3): GA features default on; TEST features default OFF and need
-    // an explicit entitlement row — no access_tier tier-default (GUI parity).
-    // v1: flat FEATURE_DEFAULTS. An explicit entitlement row wins either way.
-    const enabled =
-      v2 && isFeatureKey(k)
-        ? resolveFeature(rows, k as FeatureKey)
-        : isFeatureEnabled(rows, k);
+    // GA features default ON; TEST features default OFF and need an explicit
+    // entitlement row — no access_tier tier-default, matching the GUI. An
+    // explicit entitlement row wins either way.
+    //
+    // The flag-gated fallback to flat FEATURE_DEFAULTS is gone with the rest of
+    // v1: it applied a DIFFERENT default set to the same caller depending on an
+    // env var, which is precisely the kind of divergence that made SEC-83 hard
+    // to reason about in the first place.
+    const enabled = isFeatureKey(k)
+      ? resolveFeature(rows, k as FeatureKey)
+      : isFeatureEnabled(rows, k);
     if (!enabled) {
       throw new Error(DENY_MESSAGE[k] ?? `The "${k}" feature is not enabled for your account.`);
     }
   }
 }
 
-/**
- * Block publishing over MCP when the env-wide age gate is on and the user isn't
- * age-verified (mirrors the web publishProfile gate; KAN-282/KAN-319). Requires
- * AGE_VERIFICATION_REQUIRED on the MCP server's Railway env. Independent of
- * ACCESS_MODEL_V2.
+/*
+ * requireAgeVerifiedToPublish (KAN-282/KAN-319) was REMOVED 2026-07-20, along
+ * with the web publishProfile gate it mirrored. Lyra no longer runs a provider
+ * age check: age is an 18+ self-declaration made at sign-up and recorded by the
+ * web app, so there is nothing for MCP to re-check at publish time and
+ * lyra_publish_profile no longer consults age at all.
+ *
+ * `AGE_VERIFICATION_REQUIRED` is now read by nothing in this server — unset it
+ * on both Railway services. Leaving it set is inert but misleading.
+ *
+ * `age_status` remains on ProfileGate because the v1 select list is pinned to
+ * columns guaranteed to exist on every environment (see profileForUser); it is
+ * no longer consulted by any gate.
  */
-export async function requireAgeVerifiedToPublish(userId: string): Promise<void> {
-  if (process.env.AGE_VERIFICATION_REQUIRED !== 'true') return;
-  const prof = await profileForUser(userId);
-  if (!prof || prof.age_status !== 'passed') {
-    throw new Error(
-      'You need to verify your age before publishing your profile. Visit checklyra.com/verify-age.',
-    );
-  }
-}

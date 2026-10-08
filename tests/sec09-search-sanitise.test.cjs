@@ -23,6 +23,18 @@ describe('SEC-09 — search query sanitisation', () => {
     expect(sanitiseSrc).toContain('[,()*%_');
   });
 
+  // SEC-59 (2026-07-13): the strip-set is unified with the web + admin-MCP
+  // surfaces — it must also cover the PostgREST operator separators . and : and
+  // the quote " (the fuller defensive set the admin-MCP sanitiser already used).
+  test('strip-set is unified with the other surfaces (covers . : and ")', () => {
+    const cls = sanitiseSrc.match(/\.replace\((\/\[[^\]]*\]\/g)/);
+    expect(cls).not.toBeNull();
+    const charClass = cls[1];
+    for (const ch of ['.', ':', '"']) {
+      expect(charClass).toContain(ch);
+    }
+  });
+
   test('the search tool sanitises the query before the .or() interpolation', () => {
     expect(indexSrc).toContain('sanitiseSearchTerm(query');
     // the .or() interpolates the sanitised term, never the raw `query`

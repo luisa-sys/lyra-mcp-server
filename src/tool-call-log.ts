@@ -71,8 +71,15 @@ function extractMethod(req: Request): { method: string; tool: string } {
  * Express middleware: writes one row per POST /mcp request.
  * Mount AFTER `express.json()` (needs req.body) and BEFORE the rate
  * limiter, so even rate-limited requests appear in the log.
+ *
+ * BUGS-61: the row is written when the response completes (the `finish`
+ * event) rather than on the way in, so `status_code` reflects the real
+ * HTTP outcome (200 served, 429 rate-limited, 4xx/5xx errored) instead of
+ * the NULL placeholder it was stuck at for every historical row. The
+ * request is never blocked — the insert is still fire-and-forget, it just
+ * fires from the finish handler once `res.statusCode` is settled.
  */
-export function toolCallLogMiddleware(req: Request, _res: Response, next: NextFunction): void {
+export function toolCallLogMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Skip non-MCP routes and non-POST traffic — those are health checks,
   // discovery probes, etc. and don't represent agent activity.
   if (req.method !== 'POST' || req.path !== '/mcp') {
@@ -82,13 +89,27 @@ export function toolCallLogMiddleware(req: Request, _res: Response, next: NextFu
     return next();
   }
 
+  // Snapshot the request-derived fields now — req.body may be consumed by
+  // the time the response finishes.
   const ip = extractIp(req);
   const { method, tool } = extractMethod(req);
   const apiKeyPrefix = extractApiKeyPrefix(req);
 
-  // Fire-and-forget. We don't await the insert — the request shouldn't
-  // wait for an audit-log row to land before being processed.
-  void recordToolCall({ ip, tool, method, apiKeyPrefix });
+  // Record exactly once, when the response terminates. `finish` fires after
+  // res.end() for a normally-completed response (including rate-limited 429s
+  // and error responses, since the limiter/handlers still send a response);
+  // `close` covers a client-aborted connection where `finish` never fires.
+  // A guard prevents a double insert when both fire.
+  let recorded = false;
+  const record = (): void => {
+    if (recorded) return;
+    recorded = true;
+    // Fire-and-forget. We don't await the insert — the response has already
+    // been sent; the audit row lands out of band.
+    void recordToolCall({ ip, tool, method, apiKeyPrefix, statusCode: res.statusCode });
+  };
+  res.once('finish', record);
+  res.once('close', record);
 
   next();
 }

@@ -26,9 +26,23 @@ describe('KAN-317: MCP entitlement enforcement', () => {
     expect(s).toMatch(/requireFeatures\(\s*auth\.userId\s*,\s*\[\s*['"]mcp['"]\s*\]\s*\)/);
   });
 
-  test('lyra_publish_profile enforces the age gate', () => {
+  // KAN-407: the publish-time age gate was removed from BOTH surfaces. Lyra
+  // establishes age by a self-declaration at sign-up (recorded by the web app),
+  // so there is nothing for MCP to re-check at publish time. Inverted rather
+  // than deleted: if the gate is ever reintroduced here without the web side,
+  // the two surfaces are out of sync again and this should fail.
+  test('lyra_publish_profile does NOT gate on age (matches the web publish path)', () => {
     const s = read('write-tools.ts');
-    expect(s).toMatch(/requireAgeVerifiedToPublish/);
+    expect(s).not.toMatch(/requireAgeVerifiedToPublish/);
+    const ent = read('feature-entitlements.ts');
+    expect(ent).not.toMatch(/export async function requireAgeVerifiedToPublish/);
+  });
+
+  test('the mcp entitlement gate itself is untouched by the age change', () => {
+    // Guard against the age removal having been over-applied to the real
+    // access controls sitting next to it.
+    const ent = read('feature-entitlements.ts');
+    expect(ent).toMatch(/export async function requireFeatures/);
   });
 
   // Enumerate every Convene tool file (except the shared helper) and assert it
