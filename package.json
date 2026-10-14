@@ -4,6 +4,9 @@
   "description": "Lyra MCP Server — AI companion access to Lyra profiles via Model Context Protocol",
   "type": "module",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "npx tsc",
     "start": "node dist/index.js",
