@@ -14,6 +14,7 @@
  */
 
 import type { GatheringType } from './convene-recommend-scoring.js';
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from './fetch-timeout.js';
 
 const PLACES_BASE = 'https://places.googleapis.com/v1';
 
@@ -166,7 +167,7 @@ export async function searchPlaces(input: PlacesSearchInput): Promise<ParsedPlac
     };
   }
 
-  const res = await fetch(endpoint, {
+  const res = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -174,7 +175,7 @@ export async function searchPlaces(input: PlacesSearchInput): Promise<ParsedPlac
       'X-Goog-FieldMask': DEFAULT_FIELD_MASK,
     },
     body: JSON.stringify(body),
-  });
+  }, DEFAULT_FETCH_TIMEOUT_MS);
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
