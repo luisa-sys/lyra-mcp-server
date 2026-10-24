@@ -26,6 +26,15 @@ describe('MCP Server - Project Structure', () => {
     expect(pkg.main).toBe('dist/index.js');
   });
 
+  test('package.json declares a Node engines floor (KAN-358 cross-repo-06)', () => {
+    // Standardise engines.node across the MCP repos: lyra-admin-mcp-server
+    // already declares node >=20; this asserts the user-facing MCP matches so
+    // the two servers stay pinned to the same runtime floor.
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    expect(pkg.engines).toBeDefined();
+    expect(pkg.engines.node).toBe('>=20');
+  });
+
   test('required dependencies are installed', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     expect(pkg.dependencies['@modelcontextprotocol/sdk']).toBeDefined();
